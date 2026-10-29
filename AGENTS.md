@@ -44,6 +44,7 @@ There are three pages, in a daily loop: **Today → Follow up → Sources**.
 **Follow up** has two views:
 - **Pipeline:** Touch / WIP / Late, with drag-and-drop.
 - **Spreadsheet:** everyone, sortable, shown as cards on mobile.
+  - Multi-select: Shift-click selects a range from the selected row, Cmd/Ctrl-click adds or removes one row, `Shift`+`↑`/`↓` extends. With 2+ selected, a bulk bar sets Active lead, Unqualified, Cold storage, Back in pipeline, follow-up 24H/2D/1W and project, or removes them (two clicks). Bulk actions only touch rows that are visible under the current filters. Selection clears on page or view change.
 
 Filters: search, Active leads only, account, industry (focus industries come first).
 
@@ -108,7 +109,7 @@ Shortcuts are ignored while typing, while a modal is open (except `Esc`), or whe
 - **Today:** `S` skips, `X` marks not a fit, `L` logs a find, `Enter` saves.
 - **Follow up:**
   - `↑`/`↓` or `J`/`K` move up and down a column (they stop at the ends). `←`/`→` or `H`/`L` jump to the same row in the next column that has cards. In the spreadsheet only up and down apply. `Esc` clears the selection, `F` or `/` jumps to search.
-  - With someone selected: `T` touch, `A` Active lead, `U` Unqualified, `C` cold, `R` back to Touch, `1`/`2`/`3` snooze 24h/2d/1w, `E`/`Enter` edit.
+  - With someone selected: `T` touch, `A` Active lead, `U` Unqualified, `C` cold, `R` back to Touch, `1`/`2`/`3` snooze 24h/2d/1w, `E`/`Enter` edit. With several rows selected in the spreadsheet, `A`/`U`/`C` turn the flag on for all (off if all already have it), `R` puts them all back in the pipeline, and `1`/`2`/`3` snooze them all.
 
 ## Persistence
 
