@@ -330,7 +330,16 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const tag = e.target.tagName;
   const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
-  if (state.ui.modal) { if (e.key === 'Escape') { e.preventDefault(); closeModal(); } return; }
+  if (state.ui.modal) {
+    if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+    // Enter saves from anywhere in a dialog (checkboxes, chips, nothing focused), not only from a text field.
+    // Textareas keep Enter for new lines and buttons keep Enter for themselves.
+    if (e.key === 'Enter' && !e.shiftKey && tag !== 'TEXTAREA' && tag !== 'BUTTON' && !e.isComposing) {
+      const form = root.querySelector('.modal form');
+      if (form) { e.preventDefault(); form.requestSubmit(); }
+    }
+    return;
+  }
   if (typing) {
     if (e.key === 'Escape') e.target.blur();
     return;
