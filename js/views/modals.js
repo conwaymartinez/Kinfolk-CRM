@@ -24,6 +24,14 @@ function personModal(m) {
   const sub = orig ? (m.touch ? 'Log a touch' : 'Update follow-up') : 'New person';
   return shell(orig ? orig.name : 'Add to the pipe', sub, html`
     <form class="stack" data-form="person" autocomplete="off">
+      <div class="checks">
+        <label class="check"><input type="checkbox" data-bind="draft.activeLead" ${d.activeLead ? 'checked' : ''}>
+          <span><strong>Active lead</strong><span class="muted small block">Engaged: a real opportunity</span></span></label>
+        <label class="check"><input type="checkbox" data-bind="draft.unqualified" ${d.unqualified ? 'checked' : ''}>
+          <span><strong>Unqualified</strong><span class="muted small block">Not vetted or not a fit yet</span></span></label>
+        <label class="check"><input type="checkbox" data-bind="draft.cold" ${d.cold ? 'checked' : ''}>
+          <span><strong>Cold storage</strong><span class="muted small block">${m.touch ? 'Log this touch, then park them' : 'Parked, record kept'}</span></span></label>
+      </div>
       ${last.length ? html`<p class="muted small">Last touch ${new Date(last[0].date).toLocaleDateString()}${last[0].project ? ' · ' + last[0].project : ''} · ${last.length} total</p>` : ''}
       <div class="touch-box ${m.touch ? 'active' : ''} ${m.error ? 'has-error' : ''}">
         <label class="field">Next step
@@ -43,10 +51,10 @@ function personModal(m) {
 
       <div class="field">Next follow-up
         <div class="row wrap">
-          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.cold || !d.contacted ? 'disabled' : ''} aria-label="Follow-up date and time">
-          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.cold || !d.contacted ? 'disabled' : ''}>${p.label}</button>`)}
+          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.cold || d.unqualified ? 'disabled' : ''} aria-label="Follow-up date and time">
+          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.cold || d.unqualified ? 'disabled' : ''}>${p.label}</button>`)}
         </div>
-        <span class="muted small">${d.cold ? 'None while in cold storage' : !d.contacted ? 'Not in the pipeline yet' : preset ? preset.title : ''}</span>
+        <span class="muted small">${d.cold ? 'None while in cold storage' : d.unqualified ? 'None while Unqualified' : preset ? preset.title : ''}</span>
       </div>
 
       <div class="grid2">
@@ -69,15 +77,6 @@ function personModal(m) {
       </div>
       <datalist id="dl-accounts">${accounts().map((a) => html`<option value="${a}"></option>`)}</datalist>
       <datalist id="dl-industries">${[...inds.focus, ...inds.other].map((a) => html`<option value="${a}"></option>`)}</datalist>
-
-      <div class="checks">
-        <label class="check"><input type="checkbox" data-bind="draft.activeLead" ${d.activeLead ? 'checked' : ''}>
-          <span><strong>Active lead</strong><span class="muted small block">They're engaged: a real opportunity</span></span></label>
-        <label class="check"><input type="checkbox" data-bind="draft.contacted" ${d.contacted ? 'checked' : ''}>
-          <span><strong>In the follow-up pipeline</strong><span class="muted small block">Untick for a prospect you haven't reached</span></span></label>
-        <label class="check"><input type="checkbox" data-bind="draft.cold" ${d.cold ? 'checked' : ''}>
-          <span><strong>Cold storage</strong><span class="muted small block">${m.touch ? 'Log this touch, then park them out of the pipeline' : 'Keep the record, take them out of the pipeline'}</span></span></label>
-      </div>
 
       ${orig ? (orig.headline || orig.notes ? html`<details><summary>Notes</summary>
           ${orig.headline ? html`<p class="small">${orig.headline}</p>` : ''}<p class="small pre">${orig.notes}</p></details>` : '')
@@ -153,8 +152,8 @@ function syncModal(m) {
 }
 
 const KEYS = [
-  ['Pick someone', [['↑ ↓', 'J K', 'Move through cards'], ['Esc', '', 'Clear the selection'], ['F', '/', 'Search']]],
-  ['Act on them', [['T', '', 'Log a touch'], ['A', '', 'Active lead on / off'], ['C', '', 'Cold storage on / off'], ['R', '', 'Back to Touch, due tomorrow'],
+  ['Pick someone', [['↑ ↓', 'J K', 'Up and down a column'], ['← →', 'H L', 'Across columns'], ['Esc', '', 'Clear the selection'], ['F', '/', 'Search']]],
+  ['Act on them', [['T', '', 'Log a touch'], ['A', '', 'Active lead on / off'], ['U', '', 'Unqualified on / off'], ['C', '', 'Cold storage on / off'], ['R', '', 'Back to Touch, due tomorrow'],
     ['1 2 3', '', 'Follow up in 24H / 2 days / 1 week'], ['E', 'Enter', 'Open the full record']]],
   ['Prospecting (Today)', [['Enter', '', 'Save prospect'], ['S', '', "Can't find anyone yet"], ['X', '', 'Not a fit'], ['L', '', 'Log a find']]],
   ['Anywhere', [['G', 'then T F S', 'Go to Today / Follow up / Sources'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
