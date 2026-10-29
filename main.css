@@ -189,6 +189,13 @@ kbd { font: 600 11px/1 var(--font); border: 1px solid currentColor; border-radiu
 .sheet tbody tr { cursor: pointer; }
 .sheet tbody tr:hover { background: var(--bg-3); }
 .sheet tbody tr.selected { background: var(--accent-bg); }
+.bulk-bar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--accent); border-radius: 14px; background: var(--accent-bg); }
+.bulk-bar strong { margin-right: 4px; font-size: 14px; }
+.bulk-bar .pill { height: 34px; }
+.bulk-bar .pill-select { height: 34px; }
+.bulk-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.sheet-hint { margin: 0 0 8px; }
+@media (pointer: coarse) { .sheet-hint { display: none; } }
 .sheet td.actions { white-space: nowrap; text-align: right; }
 .sheet-cards { display: none; }
 .sheet-card { width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fff; display: flex; flex-direction: column; gap: 4px; cursor: pointer; }

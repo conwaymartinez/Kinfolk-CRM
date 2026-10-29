@@ -1,7 +1,7 @@
 // Follow up: the urgency board (Touch / WIP / Late) and the spreadsheet of everyone.
 import { html, icon, rel, plural } from '../ui.js';
 import {
-  state, columns, statusOf, STATUS_LABEL, matchesFilters, isWin, isNew, accounts, industries, lateCount, touchStats,
+  state, PRESETS, columns, statusOf, STATUS_LABEL, matchesFilters, isWin, isNew, accounts, industries, lateCount, touchStats,
 } from '../store.js';
 
 const COLS = [
@@ -96,12 +96,40 @@ function timeCell(p, s, now) {
   return html`<span class="timer ${s === 'late' ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>`;
 }
 
+function bulkBar(ids) {
+  const people = ids.map((id) => state.people.find((p) => p.id === id));
+  const all = (f) => people.every((p) => p[f]);
+  const flag = (field, label) => html`<button type="button" class="pill ${all(field) ? 'on' : ''}" data-action="bulk-flag" data-field="${field}" data-on="${all(field) ? '0' : '1'}" aria-pressed="${all(field)}">${label}</button>`;
+  return html`
+    <div class="bulk-bar" role="toolbar" aria-label="Edit ${ids.length} selected people">
+      <strong>${ids.length} selected</strong>
+      ${flag('activeLead', 'Active lead')}
+      ${flag('unqualified', 'Unqualified')}
+      ${flag('cold', 'Cold storage')}
+      <button type="button" class="pill" data-action="bulk-pipeline" title="Clear Unqualified and Cold, back to Touch">Back in pipeline</button>
+      <span class="bulk-sep"></span>
+      <span class="muted small">Follow up</span>
+      ${PRESETS.map((p) => html`<button type="button" class="pill" data-action="bulk-snooze" data-value="${p.id}" title="${p.title}">${p.label}</button>`)}
+      <select class="pill-select" data-bind="bulkProject" aria-label="Set project for selected">
+        <option value="__">Set project…</option><option value="">No project</option>
+        ${state.projects.map((p) => html`<option value="${p}">${p}</option>`)}
+      </select>
+      <span class="grow"></span>
+      <button type="button" class="btn sm danger-ghost" data-action="bulk-remove">${state.ui.bulkConfirm ? `Confirm remove ${ids.length}` : 'Remove'}</button>
+      <button type="button" class="btn sm" data-action="bulk-clear" title="Esc">Clear</button>
+    </div>`;
+}
+
 function sheet() {
   const now = state.now;
   const rows = sortedRows();
+  const visible = new Set(rows.map((p) => p.id));
+  const multi = state.ui.multi.filter((id) => visible.has(id));
+  const isSel = (id) => (multi.length > 1 ? multi.includes(id) : state.ui.selectedId === id);
   const { key, dir } = state.ui.sort;
   const filtered = state.ui.search || state.ui.onlyActive || state.ui.account || state.ui.industry;
   return html`
+    ${multi.length > 1 ? bulkBar(multi) : html`<p class="muted small sheet-hint">Shift-click to select a range, ${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'}-click to add one, then edit them together.</p>`}
     <div class="sheet-wrap" aria-label="People spreadsheet">
       <table class="sheet">
         <thead><tr>${SHEET_COLS.map((c) => html`<th aria-sort="${c.key === key ? (dir > 0 ? 'ascending' : 'descending') : 'none'}">
@@ -109,7 +137,7 @@ function sheet() {
         <tbody>
           ${rows.map((p) => {
             const s = statusOf(p, now);
-            return html`<tr class="${state.ui.selectedId === p.id ? 'selected' : ''}" data-row="${p.id}">
+            return html`<tr class="${isSel(p.id) ? 'selected' : ''}" data-row="${p.id}" aria-selected="${isSel(p.id)}">
               <td><span class="name">${p.name}</span><span class="muted small block">${p.organization}</span></td>
               <td><span class="status ${s}">${STATUS_LABEL[s]}</span></td>
               <td>${p.activeLead ? html`<span class="tag active">Active lead</span>` : html`<span class="muted">—</span>`}</td>

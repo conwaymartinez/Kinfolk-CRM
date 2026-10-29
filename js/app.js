@@ -80,6 +80,7 @@ function route() {
   else if (h.startsWith('sources')) state.ui.route = 'sources';
   else state.ui.route = 'today';
   state.ui.selectedId = state.ui.route === 'follow-up' ? state.ui.selectedId : null;
+  clearMulti();
   render();
   document.getElementById('main')?.scrollTo?.(0, 0);
 }
@@ -126,6 +127,51 @@ function moveSelection(sel, dx, dy) {
   return sel;
 }
 
+// ───────────── spreadsheet multi-select ─────────────
+const inSheet = () => state.ui.route === 'follow-up' && state.ui.followView === 'sheet';
+const clearMulti = () => { state.ui.multi = []; state.ui.cursor = null; state.ui.bulkConfirm = false; };
+
+/** Who an action applies to: the multi-selection (visible rows only), else the single selection. */
+function picked() {
+  if (inSheet() && state.ui.multi.length) {
+    const visible = new Set(sortedRows().map((p) => p.id));
+    const ids = state.ui.multi.filter((id) => visible.has(id));
+    if (ids.length) return ids;
+  }
+  return state.ui.selectedId && S.byId(state.ui.selectedId) ? [state.ui.selectedId] : [];
+}
+
+/** Select every visible row between the anchor (selectedId) and `to`. */
+function selectRange(to) {
+  const order = sortedRows().map((p) => p.id);
+  const a = order.indexOf(state.ui.selectedId);
+  const b = order.indexOf(to);
+  if (a < 0 || b < 0) { state.ui.selectedId = to; clearMulti(); return; }
+  state.ui.multi = order.slice(Math.min(a, b), Math.max(a, b) + 1);
+  state.ui.cursor = to;
+  state.ui.bulkConfirm = false;
+}
+
+function rowClick(id, e) {
+  const ui = state.ui;
+  if (e.shiftKey && ui.selectedId) return selectRange(id);
+  if (e.metaKey || e.ctrlKey) {
+    const set = new Set(ui.multi.length ? ui.multi : ui.selectedId ? [ui.selectedId] : []);
+    set.has(id) ? set.delete(id) : set.add(id);
+    ui.multi = [...set];
+    ui.selectedId = set.has(id) ? id : ui.multi[ui.multi.length - 1] ?? null;
+    ui.cursor = null;
+    ui.bulkConfirm = false;
+    if (ui.multi.length < 2) ui.multi = [];
+    return;
+  }
+  const wasMulti = ui.multi.length > 1;
+  clearMulti();
+  ui.selectedId = ui.selectedId === id && !wasMulti ? null : id;
+}
+
+const flagOn = (ids, field) => ids.some((id) => !S.byId(id)?.[field]);
+
 function act(action, el) {
   const id = el?.dataset.id;
   const num = id !== undefined ? Number(id) : null;
@@ -133,6 +179,13 @@ function act(action, el) {
   switch (action) {
     case 'open-followup': state.ui.selectedId = num; go('#/follow-up'); return;
     case 'add-person': openPerson(null); return;
+    case 'bulk-flag': toast(S.bulkFlag(picked(), el.dataset.field, el.dataset.on === '1')); break;
+    case 'bulk-pipeline': toast(S.bulkBackToPipeline(picked())); break;
+    case 'bulk-snooze': { const p = S.PRESETS.find((x) => x.id === el.dataset.value); toast(S.bulkSnooze(picked(), p.hours, p.label)); break; }
+    case 'bulk-remove':
+      if (!state.ui.bulkConfirm) { state.ui.bulkConfirm = true; break; }
+      toast(S.bulkRemove(picked())); clearMulti(); state.ui.selectedId = null; break;
+    case 'bulk-clear': clearMulti(); break;
     case 'edit': openPerson(num); return;
     case 'close-modal': closeModal(); return;
     case 'only-active': state.ui.onlyActive = !state.ui.onlyActive; break;
@@ -190,6 +243,7 @@ function onBind(el, final) {
   const [scope, field] = b.split('.');
   if (b === 'search') { state.ui.search = val; return render(); }
   if (b === 'account' || b === 'industry') { state.ui[b] = val; return render(); }
+  if (b === 'bulkProject') { if (val !== '__') toast(S.bulkSet(picked(), 'project', val)); return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
   if (scope === 'today') { state.ui.today[field] = val; return render(); }
   if (scope === 'find') { state.ui.find[field] = val; if (state.ui.find.error) { state.ui.find.error = ''; render(); } return; }
@@ -286,10 +340,13 @@ root.addEventListener('click', (e) => {
   const card = e.target.closest('[data-card], [data-row]');
   if (card) {
     const id = Number(card.dataset.card || card.dataset.row);
-    state.ui.selectedId = state.ui.selectedId === id ? null : id;
+    if (card.dataset.row) rowClick(id, e);
+    else state.ui.selectedId = state.ui.selectedId === id ? null : id;
     render();
   }
 });
+// Shift-click on a row selects a range; stop the browser from also selecting the text in between.
+root.addEventListener('mousedown', (e) => { if ((e.shiftKey || e.metaKey || e.ctrlKey) && e.target.closest('[data-row]')) e.preventDefault(); });
 root.addEventListener('dblclick', (e) => {
   const card = e.target.closest('[data-card], [data-row]');
   if (card) openPerson(Number(card.dataset.card || card.dataset.row));
@@ -366,16 +423,37 @@ document.addEventListener('keydown', (e) => {
   if (k === 'f' || k === '/') { e.preventDefault(); focusAfter = '#search'; return render(); }
   const sel = state.ui.selectedId;
   const step = { ArrowDown: [0, 1], j: [0, 1], ArrowUp: [0, -1], k: [0, -1], ArrowRight: [1, 0], l: [1, 0], ArrowLeft: [-1, 0], h: [-1, 0] }[k];
+  if (step && e.shiftKey && inSheet() && step[1]) {
+    e.preventDefault();
+    if (!sel) return;
+    const next = moveSelection(state.ui.cursor ?? sel, 0, step[1]);
+    selectRange(next);
+    render();
+    root.querySelector(`[data-row="${next}"]`)?.scrollIntoView({ block: 'nearest' });
+    return;
+  }
   if (step) {
     e.preventDefault();
-    const next = moveSelection(sel, step[0], step[1]);
+    const from = state.ui.cursor ?? sel;
+    clearMulti();
+    const next = moveSelection(from, step[0], step[1]);
     if (next == null || next === sel) return;
     state.ui.selectedId = next;
     render();
     root.querySelector(`[data-card="${next}"], [data-row="${next}"]`)?.scrollIntoView({ block: 'nearest' });
     return;
   }
-  if (k === 'Escape') { state.ui.selectedId = null; return render(); }
+  if (k === 'Escape') { state.ui.selectedId = null; clearMulti(); return render(); }
+  const ids = picked();
+  if (ids.length > 1) {
+    if (k === 'a') { toast(S.bulkFlag(ids, 'activeLead', flagOn(ids, 'activeLead'))); return render(); }
+    if (k === 'u') { toast(S.bulkFlag(ids, 'unqualified', flagOn(ids, 'unqualified'))); return render(); }
+    if (k === 'c') { toast(S.bulkFlag(ids, 'cold', flagOn(ids, 'cold'))); return render(); }
+    if (k === 'r') { toast(S.bulkBackToPipeline(ids)); return render(); }
+    const bp = S.PRESETS.find((p) => p.key === k);
+    if (bp) { toast(S.bulkSnooze(ids, bp.hours, bp.label)); return render(); }
+    return;
+  }
   if (!sel || !S.byId(sel)) return;
   if (k === 't') { e.preventDefault(); return openPerson(sel, { touch: true, focus: '#next-step' }); }
   if (k === 'e' || k === 'Enter') { e.preventDefault(); return openPerson(sel); }

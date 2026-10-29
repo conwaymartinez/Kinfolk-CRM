@@ -113,7 +113,7 @@ export const state = {
   now: Date.now(),
   ui: {
     route: 'today', followView: 'pipeline', search: '', onlyActive: false, account: '', industry: '',
-    sort: { key: 'followUpAt', dir: 1 }, selectedId: null, modal: null, toast: null,
+    sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
   },
   sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false },
@@ -436,3 +436,42 @@ export function setSourceNote(id, where) {
 export const sourceWhere = (id) => state.sourceNotes[id] ?? SOURCES.find((s) => s.id === id)?.where ?? '';
 
 export { startOfDay, startOfWeek };
+
+// ───────────── bulk edits (spreadsheet multi-select) ─────────────
+const names = (n) => `${n} ${n === 1 ? 'person' : 'people'}`;
+
+/** Set Active lead, Unqualified or Cold storage on many people at once. Returns a toast message. */
+export function bulkFlag(ids, field, on) {
+  ids.forEach((id) => {
+    const p = byId(id);
+    if (!p) return;
+    if (field === 'activeLead') patchPerson(id, { activeLead: on });
+    else if (on) patchPerson(id, { [field]: true, ...(field === 'cold' ? { unqualified: false } : { cold: false }) });
+    else if (p[field]) rejoin(id, { [field]: false });
+  });
+  const label = { activeLead: 'Active lead', unqualified: 'Unqualified', cold: 'cold storage' }[field];
+  if (field === 'cold') return on ? `${names(ids.length)} moved to cold storage` : `${names(ids.length)} out of cold storage`;
+  return on ? `${names(ids.length)} marked ${label}` : `${names(ids.length)} no longer ${label}`;
+}
+
+/** Back into the pipeline at Touch (clears Unqualified and Cold); overdue dates move to tomorrow. */
+export function bulkBackToPipeline(ids) {
+  ids.forEach((id) => { if (byId(id)) rejoin(id, { cold: false, unqualified: false, stage: 'touch' }); });
+  return `${names(ids.length)} back in the pipeline`;
+}
+
+export function bulkSnooze(ids, hours, label) {
+  const at = new Date(Date.now() + hours * HOUR).toISOString();
+  ids.forEach((id) => patchPerson(id, { followUpAt: at }));
+  return `${names(ids.length)} · follow up ${label}`;
+}
+
+export function bulkSet(ids, field, value) {
+  ids.forEach((id) => patchPerson(id, { [field]: value }));
+  return `${names(ids.length)} · ${field} set to ${value || 'none'}`;
+}
+
+export function bulkRemove(ids) {
+  ids.forEach((id) => removePerson(id));
+  return `${names(ids.length)} removed`;
+}
