@@ -188,7 +188,11 @@ kbd { font: 600 11px/1 var(--font); border: 1px solid currentColor; border-radiu
 .sheet td { padding: 10px 12px; border-top: 1px solid var(--line-2); vertical-align: middle; }
 .sheet tbody tr { cursor: pointer; }
 .sheet tbody tr:hover { background: var(--bg-3); }
-.sheet tbody tr.selected { background: var(--accent-bg); }
+.sheet tbody tr.selected, .sheet tbody tr.selected:hover { background: #dfe7fb; }
+.sheet tbody tr.selected td { border-top-color: var(--accent-line); }
+.sheet tbody tr.selected td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.sheet tbody tr.selected .name { color: var(--accent-ink); }
+.sheet tbody tr.selected + tr td { border-top-color: var(--accent-line); }
 .bulk-bar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--accent); border-radius: 14px; background: var(--accent-bg); }
 .bulk-bar strong { margin-right: 4px; font-size: 14px; }
 .bulk-bar .pill { height: 34px; }
