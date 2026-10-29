@@ -101,12 +101,30 @@ function openFind(source) {
 const closeModal = () => { state.ui.modal = null; render(); };
 
 // ───────────── actions ─────────────
-const visibleOrder = () => {
-  if (state.ui.route !== 'follow-up') return [];
-  if (state.ui.followView === 'sheet') return sortedRows().map((p) => p.id);
+/**
+ * Arrow-key navigation. On the board, up/down stays in the column and left/right jumps to the
+ * same row of the next column that has cards. In the spreadsheet only up/down applies.
+ */
+function moveSelection(sel, dx, dy) {
+  if (state.ui.route !== 'follow-up') return null;
+  if (state.ui.followView === 'sheet') {
+    if (dx) return sel;
+    const order = sortedRows().map((p) => p.id);
+    const i = order.indexOf(sel);
+    if (!order.length) return null;
+    return i < 0 ? order[0] : order[Math.min(order.length - 1, Math.max(0, i + dy))];
+  }
   const c = S.columns();
-  return [...c.touch, ...c.wip, ...c.late].map((p) => p.id);
-};
+  const cols = [c.touch, c.wip, c.late].map((list) => list.map((p) => p.id));
+  let ci = cols.findIndex((ids) => ids.includes(sel));
+  if (ci < 0) return cols.find((ids) => ids.length)?.[0] ?? null;
+  const ri = cols[ci].indexOf(sel);
+  if (dy) return cols[ci][Math.min(cols[ci].length - 1, Math.max(0, ri + dy))];
+  for (let n = ci + dx; n >= 0 && n < cols.length; n += dx) {
+    if (cols[n].length) return cols[n][Math.min(ri, cols[n].length - 1)];
+  }
+  return sel;
+}
 
 function act(action, el) {
   const id = el?.dataset.id;
@@ -186,6 +204,9 @@ function onBind(el, final) {
     if (field === 'reportsToId') { d.reportsToId = val ? Number(val) : null; return; }
     if (field === 'strength') { d.strength = Number(val); return; }
     d[field] = val;
+    // Unqualified and Cold storage are two different ways out of the pipeline: pick one.
+    if (field === 'cold' && val) d.unqualified = false;
+    if (field === 'unqualified' && val) d.cold = false;
     if (field === 'nextStep') {
       const changed = val.trim() !== (m.origNext || '').trim();
       if ((changed && !m.touch) || m.error) { m.touch = m.touch || changed; m.error = ''; render(); }
@@ -334,16 +355,15 @@ document.addEventListener('keydown', (e) => {
   }
   if (state.ui.route !== 'follow-up') return;
   if (k === 'f' || k === '/') { e.preventDefault(); focusAfter = '#search'; return render(); }
-  const order = visibleOrder();
   const sel = state.ui.selectedId;
-  if (['ArrowDown', 'ArrowUp', 'j', 'k'].includes(k)) {
+  const step = { ArrowDown: [0, 1], j: [0, 1], ArrowUp: [0, -1], k: [0, -1], ArrowRight: [1, 0], l: [1, 0], ArrowLeft: [-1, 0], h: [-1, 0] }[k];
+  if (step) {
     e.preventDefault();
-    if (!order.length) return;
-    const i = order.indexOf(sel);
-    const dir = k === 'ArrowDown' || k === 'j' ? 1 : -1;
-    state.ui.selectedId = order[i < 0 ? 0 : (i + dir + order.length) % order.length];
+    const next = moveSelection(sel, step[0], step[1]);
+    if (next == null || next === sel) return;
+    state.ui.selectedId = next;
     render();
-    root.querySelector(`[data-card="${state.ui.selectedId}"], [data-row="${state.ui.selectedId}"]`)?.scrollIntoView({ block: 'nearest' });
+    root.querySelector(`[data-card="${next}"], [data-row="${next}"]`)?.scrollIntoView({ block: 'nearest' });
     return;
   }
   if (k === 'Escape') { state.ui.selectedId = null; return render(); }
@@ -353,6 +373,7 @@ document.addEventListener('keydown', (e) => {
   if (k === 'c') { toast(S.toggleCold(sel)); return render(); }
   if (k === 'r') { toast(S.backToTouch(sel)); return render(); }
   if (k === 'a') { toast(S.toggleActive(sel)); return render(); }
+  if (k === 'u') { toast(S.toggleUnqualified(sel)); return render(); }
   const preset = S.PRESETS.find((p) => p.key === k);
   if (preset) { toast(S.snooze(sel, preset.hours, preset.label)); return render(); }
 });

@@ -42,16 +42,16 @@ export const isWin = (text) => /^\s*(SV|IP)\s*:/i.test(text || '');
 
 export function statusOf(p, now) {
   if (p.cold) return 'cold';
-  if (!p.contacted) return 'prospect';
+  if (p.unqualified) return 'unqualified';
   if (new Date(p.followUpAt).getTime() <= now) return 'late';
   return p.stage === 'wip' ? 'wip' : 'touch';
 }
-export const STATUS_LABEL = { prospect: 'Prospect', touch: 'Touch', wip: 'WIP', late: 'Late', cold: 'Cold' };
+export const STATUS_LABEL = { unqualified: 'Unqualified', touch: 'Touch', wip: 'WIP', late: 'Late', cold: 'Cold' };
 
 export function blankPerson(over = {}) {
   return {
     id: 0, name: '', organization: '', role: '', industry: '', project: '', email: '', phone: '', source: '',
-    nextStep: '', followUpAt: new Date(Date.now() + DAY).toISOString(), stage: 'touch', contacted: true, cold: false,
+    nextStep: '', followUpAt: new Date(Date.now() + DAY).toISOString(), stage: 'touch', unqualified: false, cold: false,
     activeLead: false, reportsToId: null, strength: 1, createdAt: new Date().toISOString(), foundAt: '',
     headline: '', notes: '', ...over,
   };
@@ -65,7 +65,7 @@ function migrateV2() {
     id: p.id, name: p.name || '', organization: p.organization || '', role: p.role || '', industry: p.industry || '',
     project: p.project || '', email: p.email || '', phone: p.phone || '', nextStep: p.nextStep ?? p.lastTouch ?? '',
     followUpAt: p.followUpAt || new Date(Date.now() + DAY).toISOString(), stage: p.stage === 'wip' ? 'wip' : 'touch',
-    contacted: p.contacted ?? true, cold: !!p.cold, reportsToId: p.reportsToId ?? null,
+    unqualified: p.contacted === false && !p.cold, cold: !!p.cold, reportsToId: p.reportsToId ?? null,
     strength: p.relationshipStrength || 1, createdAt: p.createdAt || new Date().toISOString(),
   }));
 }
@@ -98,8 +98,12 @@ function demoTargets() {
 // ───────────── state ─────────────
 const meta = load(K.meta, null);
 const hasV3 = load(K.people, null);
+/** v3 data saved before Unqualified existed: "not in the pipeline" (contacted: false) becomes Unqualified. */
+const withUnqualified = (people) => people.map(({ contacted, ...p }) =>
+  'unqualified' in p ? p : { ...p, unqualified: contacted === false && !p.cold });
+
 export const state = {
-  people: hasV3 ?? migrateV2() ?? demoPeople(),
+  people: withUnqualified(hasV3 ?? migrateV2() ?? demoPeople()),
   touches: load(K.touches, null) ?? load('kinfolk-touches-v1', []),
   targets: load(K.targets, null) ?? (hasV3 || load('kinfolk-pipe-v2', null) ? [] : demoTargets()),
   projects: meta?.projects ?? load('kinfolk-meta-v1', {}).projects ?? DEFAULT_PROJECTS,
@@ -127,7 +131,8 @@ export function persist() {
 
 // ───────────── sheet mapping ─────────────
 export function toSheet(p) {
-  const status = p.cold ? 'Cold' : p.contacted ? (p.stage === 'wip' ? 'WIP' : 'Touch') : 'Prospect';
+  // The sheet keeps the word "Prospect" for Unqualified, so existing dropdowns, validation and Dashboard formulas still work.
+  const status = p.cold ? 'Cold' : p.unqualified ? 'Prospect' : p.stage === 'wip' ? 'WIP' : 'Touch';
   return {
     id: p.id, name: p.name, status, follow_up_at: status === 'Touch' || status === 'WIP' ? p.followUpAt : '',
     next_step: p.nextStep, project: p.project, organization: p.organization, role: p.role, industry: p.industry,
@@ -136,7 +141,7 @@ export function toSheet(p) {
   };
 }
 
-export function fromSheet(r, touched) {
+export function fromSheet(r) {
   const id = Number(r.id);
   const status = String(r.status || 'Prospect');
   const created = r.created_at ? String(r.created_at) : new Date().toISOString();
@@ -148,7 +153,7 @@ export function fromSheet(r, touched) {
     phone: String(r.phone ?? ''), source: src, nextStep: String(r.next_step ?? ''),
     followUpAt: r.follow_up_at ? String(r.follow_up_at) : new Date(new Date(created).getTime() + DAY).toISOString(),
     stage: status === 'WIP' ? 'wip' : 'touch',
-    contacted: status === 'Touch' || status === 'WIP' || (status === 'Cold' && touched.has(id)),
+    unqualified: status === 'Prospect' || status === 'Unqualified',
     cold: status === 'Cold', activeLead: /^(y|yes|true|1)$/i.test(String(r.active_lead ?? '').trim()),
     reportsToId: num(r.reports_to_id), strength: Math.min(3, Math.max(1, Number(r.strength) || 1)),
     createdAt: created, foundAt: r.found_at ? String(r.found_at) : '',
@@ -279,11 +284,12 @@ export function logTouch(p, nextStep, project) {
 export function savePerson(draft, original, { touch }) {
   const now = Date.now();
   const d = { ...draft, name: draft.name.trim(), nextStep: draft.nextStep.trim() };
-  if (touch) {
-    d.contacted = true;
-    const unchanged = !original || d.followUpAt === original.followUpAt;
-    if (unchanged && new Date(d.followUpAt).getTime() <= now) d.followUpAt = new Date(now + DAY).toISOString();
-  }
+  // Reaching out to someone who was Unqualified means you're now working them.
+  if (touch && original?.unqualified) d.unqualified = false;
+  // Logging a touch, or bringing someone back into the pipeline, with an overdue date leaves them due tomorrow.
+  const rejoined = original && (original.unqualified || original.cold) && !d.unqualified && !d.cold;
+  const unchanged = !original || d.followUpAt === original.followUpAt;
+  if ((touch || rejoined) && unchanged && new Date(d.followUpAt).getTime() <= now) d.followUpAt = new Date(now + DAY).toISOString();
   let p;
   if (original) {
     p = patchPerson(original.id, d);
@@ -329,11 +335,24 @@ export function movePerson(id, to) {
 export function toggleCold(id) {
   const p = byId(id);
   if (!p) return '';
-  if (!p.cold) { patchPerson(id, { cold: true }); return `${p.name} moved to cold storage`; }
-  const patch = { cold: false };
-  if (new Date(p.followUpAt).getTime() <= Date.now()) patch.followUpAt = new Date(Date.now() + DAY).toISOString();
+  if (!p.cold) { patchPerson(id, { cold: true, unqualified: false }); return `${p.name} moved to cold storage`; }
+  return `${p.name} restored${rejoin(id, { cold: false })}`;
+}
+
+export function toggleUnqualified(id) {
+  const p = byId(id);
+  if (!p) return '';
+  if (!p.unqualified) { patchPerson(id, { unqualified: true, cold: false }); return `${p.name} marked Unqualified`; }
+  return `${p.name} qualified${rejoin(id, { unqualified: false })}`;
+}
+
+/** Back into the pipeline; an overdue date moves to tomorrow. Returns a toast suffix. */
+function rejoin(id, patch) {
+  const p = byId(id);
+  const overdue = new Date(p.followUpAt).getTime() <= Date.now();
+  if (overdue) patch.followUpAt = new Date(Date.now() + DAY).toISOString();
   patchPerson(id, patch);
-  return `${p.name} restored${p.contacted ? ' · due tomorrow' : ''}`;
+  return overdue && !p.cold && !p.unqualified ? ' · due tomorrow' : '';
 }
 
 export function snooze(id, hours, label) {
@@ -342,7 +361,7 @@ export function snooze(id, hours, label) {
 }
 
 export function backToTouch(id) {
-  const p = patchPerson(id, { stage: 'touch', cold: false, followUpAt: new Date(Date.now() + DAY).toISOString() });
+  const p = patchPerson(id, { stage: 'touch', cold: false, unqualified: false, followUpAt: new Date(Date.now() + DAY).toISOString() });
   return p ? `${p.name} moved to Touch · due tomorrow` : '';
 }
 
@@ -365,7 +384,7 @@ export function saveFind(f, targetId) {
     id: nextId(), name: f.name.trim(), role: f.role.trim(), email: f.email.trim(), phone: f.phone.trim(),
     organization: f.organization.trim(), industry: f.industry.trim(), project: f.project || '', source: f.source,
     notes: f.why.trim(), nextStep: 'First message', followUpAt: new Date(now.getTime() + DAY).toISOString(),
-    stage: 'touch', contacted: true, createdAt: now.toISOString(), foundAt: now.toISOString(),
+    stage: 'touch', createdAt: now.toISOString(), foundAt: now.toISOString(),
   });
   state.people.push(p);
   emit([{ op: 'upsertPerson', person: { ...toSheet(p), notes: p.notes, industry_check: 'confirmed' } }]);

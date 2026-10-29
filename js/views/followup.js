@@ -71,10 +71,10 @@ function pipeline() {
 }
 
 function sortValue(p, key, now) {
-  if (key === 'status') return ['late', 'touch', 'wip', 'prospect', 'cold'].indexOf(statusOf(p, now));
+  if (key === 'status') return ['late', 'touch', 'wip', 'unqualified', 'cold'].indexOf(statusOf(p, now));
   if (key === 'followUpAt') {
     const s = statusOf(p, now);
-    return s === 'cold' || s === 'prospect' ? Infinity : new Date(p.followUpAt).getTime();
+    return s === 'cold' || s === 'unqualified' ? Infinity : new Date(p.followUpAt).getTime();
   }
   if (key === 'activeLead') return p.activeLead ? 0 : 1;
   return String(p[key] || '').toLowerCase() || '￿';
@@ -92,7 +92,7 @@ export function sortedRows() {
 
 function timeCell(p, s, now) {
   if (s === 'cold') return html`<span class="muted small">Cold storage</span>`;
-  if (s === 'prospect') return html`<span class="muted small">Not scheduled</span>`;
+  if (s === 'unqualified') return html`<span class="muted small">Not scheduled</span>`;
   return html`<span class="timer ${s === 'late' ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>`;
 }
 

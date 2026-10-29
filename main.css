@@ -118,7 +118,7 @@ kbd { font: 600 11px/1 var(--font); border: 1px solid currentColor; border-radiu
 .span2 { grid-column: 1 / -1; }
 .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
 .check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--ink); flex: none; }
-.checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 
 /* ───── cards, tags ───── */
 .card { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: #fff; }
@@ -136,7 +136,7 @@ kbd { font: 600 11px/1 var(--font); border: 1px solid currentColor; border-radiu
 .timer.overdue { color: var(--late); }
 .status { font-size: 12px; font-weight: 600; border: 1px solid currentColor; border-radius: 999px; padding: 2px 10px; white-space: nowrap; color: var(--ink-2); }
 .status.late { color: var(--late); }
-.status.prospect, .status.cold, .status.t-to_research { color: var(--muted); }
+.status.unqualified, .status.cold, .status.t-to_research { color: var(--muted); }
 .status.t-not_fit { color: var(--late); }
 
 /* ───── Today ───── */

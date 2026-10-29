@@ -87,8 +87,7 @@ function apply(data) {
     touch_id: Number(t.touch_id), date: String(t.date || ''), person_id: Number(t.person_id),
     person: String(t.person ?? ''), next_step: String(t.next_step ?? ''), project: String(t.project ?? ''),
   })).filter((t) => t.touch_id);
-  const touched = new Set(touches.map((t) => t.person_id));
-  state.people = (data.people || []).map((r) => fromSheet(r, touched)).filter((p) => p.id && p.name);
+  state.people = (data.people || []).map((r) => fromSheet(r)).filter((p) => p.id && p.name);
   state.touches = touches;
   if (data.projects?.length) state.projects = data.projects;
   if (data.groups?.length) state.groups = data.groups;

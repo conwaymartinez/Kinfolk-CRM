@@ -63,7 +63,7 @@ Filters: search, Active leads only, account, industry (focus industries come fir
 | `source` | One of the five sources, or blank |
 | `nextStep`, `followUpAt` | |
 | `stage` | `touch` or `wip` |
-| `contacted` | In the pipeline |
+| `unqualified` | Not vetted or not a fit yet; out of the pipeline. Replaces the old `contacted` flag |
 | `cold` | Cold storage |
 | `activeLead` | Manual tag; it replaces the old AIDA funnel |
 | `reportsToId`, `strength` (1–3) | |
@@ -74,16 +74,16 @@ Filters: search, Active leads only, account, industry (focus industries come fir
 
 Status is derived (`statusOf`):
 - `cold` if in cold storage;
-- else `prospect` if not contacted;
+- else `unqualified` if marked Unqualified;
 - else `late` if `followUpAt` has passed;
 - else `touch` or `wip`.
 
-Late is never stored. Prospects and cold people stay out of the pipeline and the Late count.
+Late is never stored. Unqualified and cold people stay out of the pipeline and the Late count. Anyone else is being worked, so they're in the pipeline. Unqualified and Cold are exclusive: setting one clears the other.
 
 ### Touches
 
 A touch is append-only: `{touch_id, date, person_id, person, next_step, project}`.
-- Logging a touch marks the person contacted. If the follow-up time was left unchanged and is overdue, it moves to 24 hours from now.
+- Logging a touch for someone Unqualified moves them into the pipeline. If the follow-up time was left unchanged and is overdue, it moves to 24 hours from now.
 - The "Log a touch now" box ticks itself when the next step changes.
 - Logging a touch requires a next step.
 - A **win** is a next step starting with `SV:` (site visit) or `IP:` (in-person presentation).
@@ -94,7 +94,7 @@ A touch is append-only: `{touch_id, date, person_id, person, next_step, project}
 - Moving it out of Late sets it to 24 hours from now.
 - Moving it into WIP logs a touch.
 - `R` sends someone back to Touch, due tomorrow.
-- Restoring someone from cold storage who is overdue schedules them 24 hours from now.
+- Bringing someone back from Cold or Unqualified when they're overdue schedules them 24 hours from now.
 
 ### Targets
 
@@ -107,14 +107,16 @@ Shortcuts are ignored while typing, while a modal is open (except `Esc`), or whe
 - **Anywhere:** `G` then `T`/`F`/`S` switches page, `N`/`Q` adds a person, `?` shows the help.
 - **Today:** `S` skips, `X` marks not a fit, `L` logs a find, `Enter` saves.
 - **Follow up:**
-  - `J`/`K` or `↑`/`↓` move the selection, `Esc` clears it, `F` or `/` jumps to search.
-  - With someone selected: `T` touch, `A` Active lead, `C` cold, `R` back to Touch, `1`/`2`/`3` snooze 24h/2d/1w, `E`/`Enter` edit.
+  - `↑`/`↓` or `J`/`K` move up and down a column (they stop at the ends). `←`/`→` or `H`/`L` jump to the same row in the next column that has cards. In the spreadsheet only up and down apply. `Esc` clears the selection, `F` or `/` jumps to search.
+  - With someone selected: `T` touch, `A` Active lead, `U` Unqualified, `C` cold, `R` back to Touch, `1`/`2`/`3` snooze 24h/2d/1w, `E`/`Enter` edit.
 
 ## Persistence
 
 `localStorage` keys:
 - `kinfolk-v3-people`, `kinfolk-v3-touches`, `kinfolk-v3-targets`, `kinfolk-v3-meta`, `kinfolk-v3-outbox`;
 - `kinfolk-sync-v1`, which holds `{url, token}` and is shared with v2 on purpose.
+
+Saved people that still have `contacted: false` load as Unqualified.
 
 On first load, v3 migrates the v2 keys (`kinfolk-pipe-v2`, `kinfolk-touches-v1`, `kinfolk-meta-v1`, `kinfolk-outbox-v1`) and drops the funnel fields. With no data at all, it starts with demo people plus a sample Association list (target ids `demo*`). Those demo targets are discarded on first sync.
 
@@ -134,7 +136,7 @@ Status mapping:
 
 | Sheet status | Meaning |
 |---|---|
-| Prospect | Not contacted |
+| Prospect | Unqualified (the sheet keeps the old word so dropdowns and Dashboard formulas still work; `Unqualified` is read too) |
 | Touch / WIP | The pipeline stage |
 | Cold | Cold storage |
 
@@ -150,7 +152,7 @@ Other sheet fields:
 
 ## Invariants
 
-- Late is derived. Uncontacted and cold people never enter the pipeline or the Late count.
+- Late is derived. Unqualified and cold people never enter the pipeline or the Late count.
 - Finds count toward the daily goal. A touch does not.
 - A touch is always date + next step + project.
 - Kinfolk never writes sheet-owned or formula columns.
