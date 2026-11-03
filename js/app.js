@@ -6,6 +6,7 @@ import { startSync, connect, disconnect, pull, syncLabel } from './sync.js';
 import { renderToday, emptyFind } from './views/today.js';
 import { renderFollowUp, sortedRows } from './views/followup.js';
 import { renderSources } from './views/sources.js';
+import { renderProjects, folderHref } from './views/projects.js';
 import { renderModal } from './views/modals.js';
 
 const root = document.getElementById('root');
@@ -24,6 +25,7 @@ function rail() {
       <a href="#/today" class="logo" aria-label="Kinfolk home">K</a>
       ${item('today', '#/today', 'Today', 'today')}
       ${item('follow-up', '#/follow-up', 'Follow up', 'clock', late)}
+      ${item('projects', '#/projects', 'Projects', 'folder')}
       ${item('sources', '#/sources', 'Sources', 'sources')}
       <span class="grow"></span>
       <button type="button" class="rail-mini" data-action="keys-open" aria-label="Keyboard shortcuts">${icon('keyboard', 18)}</button>
@@ -35,6 +37,7 @@ function rail() {
 function view() {
   if (state.ui.route === 'follow-up') return renderFollowUp();
   if (state.ui.route === 'sources') return renderSources();
+  if (state.ui.route === 'projects') return renderProjects();
   return renderToday();
 }
 
@@ -78,8 +81,18 @@ function route() {
   const h = location.hash.replace(/^#\/?/, '');
   if (h.startsWith('follow-up')) { state.ui.route = 'follow-up'; state.ui.followView = h.endsWith('/sheet') ? 'sheet' : 'pipeline'; }
   else if (h.startsWith('sources')) state.ui.route = 'sources';
-  else state.ui.route = 'today';
-  state.ui.selectedId = state.ui.route === 'follow-up' ? state.ui.selectedId : null;
+  else if (h.startsWith('projects')) {
+    const [, folder, tab] = h.split('/');
+    state.ui.route = 'projects';
+    state.ui.folder = folder ? decodeURIComponent(folder) : null;
+    state.ui.folderTab = tab === 'people' || tab === 'icp' ? tab : 'pipeline';
+    const d = state.ui.icpDraft;
+    if (state.ui.folder && (!d || d.project !== state.ui.folder)) state.ui.icpDraft = { ...S.icpOf(state.ui.folder), project: state.ui.folder };
+  } else state.ui.route = 'today';
+  if (state.ui.route !== 'projects') state.ui.folder = null;
+  const wasScope = state.ui.scope;
+  state.ui.scope = state.ui.folder || '';
+  state.ui.selectedId = onBoard() && wasScope === state.ui.scope ? state.ui.selectedId : null;
   clearMulti();
   render();
   document.getElementById('main')?.scrollTo?.(0, 0);
@@ -89,13 +102,14 @@ const go = (hash) => { if (location.hash === hash) route(); else location.hash =
 // ───────────── modals ─────────────
 function openPerson(id, { touch = false, focus } = {}) {
   const p = id ? S.byId(id) : null;
-  const draft = p ? { ...p } : S.blankPerson();
+  // Adding from inside a project folder files the new person there.
+  const draft = p ? { ...p } : S.blankPerson({ project: state.ui.scope || '' });
   state.ui.modal = { type: 'person', id: p ? p.id : null, draft, touch, preset: null, error: '', confirmRemove: false, origNext: draft.nextStep };
   focusAfter = focus || (p ? '#next-step' : '#person-name');
   render();
 }
 function openFind(source) {
-  state.ui.modal = { type: 'find', draft: { source: source || state.ui.today.source || 'Events', organization: '', industry: '', project: state.ui.today.project || '', name: '', role: '', email: '', phone: '', why: '', error: '' } };
+  state.ui.modal = { type: 'find', draft: { source: source || state.ui.today.source || 'Events', organization: '', industry: '', project: state.ui.scope || state.ui.today.project || '', name: '', role: '', email: '', phone: '', why: '', error: '' } };
   focusAfter = '#find-org';
   render();
 }
@@ -107,8 +121,8 @@ const closeModal = () => { state.ui.modal = null; render(); };
  * same row of the next column that has cards. In the spreadsheet only up/down applies.
  */
 function moveSelection(sel, dx, dy) {
-  if (state.ui.route !== 'follow-up') return null;
-  if (state.ui.followView === 'sheet') {
+  if (!onBoard()) return null;
+  if (inSheet()) {
     if (dx) return sel;
     const order = sortedRows().map((p) => p.id);
     const i = order.indexOf(sel);
@@ -128,7 +142,12 @@ function moveSelection(sel, dx, dy) {
 }
 
 // ───────────── spreadsheet multi-select ─────────────
-const inSheet = () => state.ui.route === 'follow-up' && state.ui.followView === 'sheet';
+/** Follow up, or a project folder's Pipeline / People tab: the places with cards and rows to act on. */
+function onBoard() {
+  const ui = state.ui;
+  return ui.route === 'follow-up' || (ui.route === 'projects' && !!ui.folder && ui.folderTab !== 'icp');
+}
+const inSheet = () => (state.ui.route === 'follow-up' ? state.ui.followView === 'sheet' : onBoard() && state.ui.folderTab === 'people');
 const clearMulti = () => { state.ui.multi = []; state.ui.cursor = null; state.ui.bulkConfirm = false; };
 
 /** Who an action applies to: the multi-selection (visible rows only), else the single selection. */
@@ -231,6 +250,28 @@ function act(action, el) {
       break;
     case 'find-source': m.draft.source = el.dataset.value; break;
     case 'find-project': m.draft.project = m.draft.project === el.dataset.value ? '' : el.dataset.value; break;
+    // project folders + ICP
+    case 'new-folder-open': state.ui.newFolder = ''; focusAfter = '#new-folder'; break;
+    case 'new-folder-cancel': state.ui.newFolder = null; break;
+    case 'icp-industry': {
+      const d = state.ui.icpDraft;
+      const v = el.dataset.value;
+      d.industries = d.industries.includes(v) ? d.industries.filter((i) => i !== v) : [...d.industries, v];
+      break;
+    }
+    case 'icp-reset': state.ui.icpDraft = { ...S.icpOf(state.ui.folder), project: state.ui.folder }; break;
+    case 'icp-assign': toast(S.assignToProject([num], state.ui.folder)); break;
+    case 'icp-file-unfiled': {
+      const ids = S.icpMatches(state.ui.folder, state.ui.icpDraft).filter((x) => !x.p.project).map((x) => x.p.id);
+      toast(S.assignToProject(ids, state.ui.folder));
+      break;
+    }
+    case 'icp-tag-targets': {
+      const ids = S.targetMatches(state.ui.folder, state.ui.icpDraft).filter((x) => !x.t.project).map((x) => x.t.id);
+      toast(S.tagTargets(ids, state.ui.folder));
+      break;
+    }
+    case 'icp-research': state.ui.today = { source: '', project: state.ui.folder }; go('#/today'); return;
     default: return;
   }
   render();
@@ -245,6 +286,10 @@ function onBind(el, final) {
   if (b === 'account' || b === 'industry') { state.ui[b] = val; return render(); }
   if (b === 'bulkProject') { if (val !== '__') toast(S.bulkSet(picked(), 'project', val)); return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
+  if (b === 'newFolder') { state.ui.newFolder = val; return; }
+  // ICP criteria re-score everyone as you type; the one-liner and pitch don't change the score.
+  // Re-render on input, never on change: a change fires on blur, and re-rendering then would swallow the click that caused it.
+  if (scope === 'icp') { state.ui.icpDraft[field] = val; if (!final && field !== 'summary' && field !== 'pitch') render(); return; }
   if (scope === 'today') { state.ui.today[field] = val; return render(); }
   if (scope === 'find') { state.ui.find[field] = val; if (state.ui.find.error) { state.ui.find.error = ''; render(); } return; }
   if (scope === 'paste') { state.ui.paste[field] = val; return; }
@@ -302,6 +347,19 @@ async function onSubmit(form) {
     state.ui.modal = null;
     toast(msg);
     return render();
+  }
+  if (kind === 'icp') {
+    S.saveIcp(state.ui.folder, state.ui.icpDraft);
+    state.ui.icpDraft = { ...S.icpOf(state.ui.folder), project: state.ui.folder };
+    toast(`ICP saved for ${state.ui.folder}`);
+    return render();
+  }
+  if (kind === 'new-folder') {
+    const id = S.addProject(state.ui.newFolder || '');
+    if (!id) { focusAfter = '#new-folder'; return render(); }
+    state.ui.newFolder = null;
+    toast(`${id} folder ready · describe who it's for`);
+    return go(folderHref(id, 'icp'));
   }
   if (kind === 'goal') {
     const v = Number(new FormData(form).get('goal'));
@@ -407,6 +465,7 @@ document.addEventListener('keydown', (e) => {
     if (k === 't') return go('#/today');
     if (k === 'f') return go('#/follow-up');
     if (k === 's') return go('#/sources');
+    if (k === 'p') return go('#/projects');
   }
   if (k === 'g') { gPending = Date.now(); return; }
   if (k === '?') { state.ui.modal = { type: 'keys' }; return render(); }
@@ -419,7 +478,7 @@ document.addEventListener('keydown', (e) => {
     if (k === 'l') { e.preventDefault(); return openFind(); }
     return;
   }
-  if (state.ui.route !== 'follow-up') return;
+  if (!onBoard()) return;
   if (k === 'f' || k === '/') { e.preventDefault(); focusAfter = '#search'; return render(); }
   const sel = state.ui.selectedId;
   const step = { ArrowDown: [0, 1], j: [0, 1], ArrowUp: [0, -1], k: [0, -1], ArrowRight: [1, 0], l: [1, 0], ArrowLeft: [-1, 0], h: [-1, 0] }[k];
