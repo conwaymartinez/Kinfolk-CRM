@@ -2,6 +2,7 @@
 import { html, icon, rel, plural } from '../ui.js';
 import {
   state, PRESETS, columns, statusOf, STATUS_LABEL, matchesFilters, isWin, isNew, accounts, industries, lateCount, touchStats,
+  icpOf, hasIcp, fitScore,
 } from '../store.js';
 
 const COLS = [
@@ -16,12 +17,19 @@ export const SHEET_COLS = [
   { key: 'nextStep', label: 'Next step' }, { key: 'followUpAt', label: 'Follow-up' },
 ];
 
-const tags = (p) => html`
+/** Inside a project folder with an ICP, people carry their fit score. */
+const scopedIcp = () => (state.ui.scope && hasIcp(icpOf(state.ui.scope)) ? icpOf(state.ui.scope) : null);
+export const fitTag = (fit) => (fit && fit.tier !== 'weak'
+  ? html`<span class="tag fit ${fit.tier}" title="ICP fit ${fit.score}%${fit.hits.length ? ' · ' + fit.hits.join(', ') : ''}">${fit.tier === 'strong' ? 'ICP fit' : 'Partial fit'}</span>` : '');
+const sheetCols = () => (scopedIcp() ? [SHEET_COLS[0], { key: 'fit', label: 'ICP fit' }, ...SHEET_COLS.slice(1)] : SHEET_COLS);
+
+const tags = (p, icp = scopedIcp()) => html`
+  ${icp ? fitTag(fitScore(p, icp)) : ''}
   ${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}
   ${isNew(p) ? html`<span class="tag new">New</span>` : ''}
   ${p.activeLead ? html`<span class="tag active">Active lead</span>` : ''}`;
 
-function toolbar() {
+export function toolbar() {
   const accs = accounts();
   const inds = industries();
   const { account, industry, onlyActive, search } = state.ui;
@@ -45,7 +53,7 @@ function toolbar() {
     </div>`;
 }
 
-function pipeline() {
+export function pipeline() {
   const cols = columns();
   const now = state.now;
   const sel = state.ui.selectedId;
@@ -77,6 +85,7 @@ function sortValue(p, key, now) {
     return s === 'cold' || s === 'unqualified' ? Infinity : new Date(p.followUpAt).getTime();
   }
   if (key === 'activeLead') return p.activeLead ? 0 : 1;
+  if (key === 'fit') { const icp = scopedIcp(); return icp ? -(fitScore(p, icp)?.score ?? 0) : 0; }
   return String(p[key] || '').toLowerCase() || '￿';
 }
 
@@ -120,7 +129,7 @@ function bulkBar(ids) {
     </div>`;
 }
 
-function sheet() {
+export function sheet() {
   const now = state.now;
   const rows = sortedRows();
   const visible = new Set(rows.map((p) => p.id));
@@ -128,17 +137,20 @@ function sheet() {
   const isSel = (id) => (multi.length > 1 ? multi.includes(id) : state.ui.selectedId === id);
   const { key, dir } = state.ui.sort;
   const filtered = state.ui.search || state.ui.onlyActive || state.ui.account || state.ui.industry;
+  const icp = scopedIcp();
   return html`
     ${multi.length > 1 ? bulkBar(multi) : html`<p class="muted small sheet-hint">Shift-click to select a range, ${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'}-click to add one, then edit them together.</p>`}
     <div class="sheet-wrap" aria-label="People spreadsheet">
       <table class="sheet">
-        <thead><tr>${SHEET_COLS.map((c) => html`<th aria-sort="${c.key === key ? (dir > 0 ? 'ascending' : 'descending') : 'none'}">
+        <thead><tr>${sheetCols().map((c) => html`<th aria-sort="${c.key === key ? (dir > 0 ? 'ascending' : 'descending') : 'none'}">
           <button type="button" data-action="sort" data-key="${c.key}">${c.label}${c.key === key ? (dir > 0 ? ' ↑' : ' ↓') : ''}</button></th>`)}<th><span class="sr">Edit</span></th></tr></thead>
         <tbody>
           ${rows.map((p) => {
             const s = statusOf(p, now);
+            const fit = icp ? fitScore(p, icp) : null;
             return html`<tr class="${isSel(p.id) ? 'selected' : ''}" data-row="${p.id}" aria-selected="${isSel(p.id)}">
               <td><span class="name">${p.name}</span><span class="muted small block">${p.organization}</span></td>
+              ${icp ? html`<td class="small">${fit ? html`<span class="fit-score ${fit.tier}">${fit.score}%</span>` : html`<span class="muted">—</span>`}</td>` : ''}
               <td><span class="status ${s}">${STATUS_LABEL[s]}</span></td>
               <td>${p.activeLead ? html`<span class="tag active">Active lead</span>` : html`<span class="muted">—</span>`}</td>
               <td class="small">${p.industry}</td>
@@ -155,7 +167,7 @@ function sheet() {
     </div>
     <div class="sheet-cards" aria-label="People list">
       <label class="sort-select">Sort
-        <select data-bind="sortKey">${SHEET_COLS.map((c) => html`<option value="${c.key}" ${c.key === key ? 'selected' : ''}>${c.label}</option>`)}</select></label>
+        <select data-bind="sortKey">${sheetCols().map((c) => html`<option value="${c.key}" ${c.key === key ? 'selected' : ''}>${c.label}</option>`)}</select></label>
       ${rows.map((p) => {
         const s = statusOf(p, now);
         return html`<button type="button" class="sheet-card" data-action="edit" data-id="${p.id}">

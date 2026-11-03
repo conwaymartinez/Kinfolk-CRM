@@ -2,6 +2,14 @@
 
 Kinfolk is plain HTML, CSS and JavaScript with no build step. GitHub Pages serves this repo as it is.
 
+## Upgrading from v3 (project folders and ICPs)
+
+1. Sheet ▸ Extensions ▸ Apps Script ▸ replace all of `Code.gs` with `apps-script/Code.gs` from this repo ▸ save.
+2. Deploy ▸ Manage deployments ▸ pencil icon ▸ Version: **New version** ▸ Deploy. URL and token stay the same.
+3. Reload Kinfolk. The next sync adds the ICP columns to the Projects tab and uploads any ICPs and folders you made in the meantime.
+
+Until then, new folders and ICPs stay on the device you made them on, and the Projects page says so.
+
 ## Upgrading from v2 (you already have a sheet and a deployment)
 
 1. Open your Kinfolk sheet ▸ Extensions ▸ Apps Script.
@@ -53,8 +61,12 @@ In Kinfolk, click the sync pill at the bottom of the left rail ▸ paste the URL
 - **Follow up:** the Touch / WIP / Late board, plus the Spreadsheet of everyone.
   - Select a card, then `T` to log a touch, `A` to toggle Active lead, `C` for cold storage, and `1` `2` `3` to snooze.
   - A next step starting `SV:` or `IP:` is a win.
+- **Projects:** one folder per asset, each with its own Touch / WIP / Late pipeline.
+  - Open a folder ▸ ICP ▸ pick industries, add roles, locations and signals. Everyone is scored as you type.
+  - Add or move the people who fit, tag matching companies on your lists, then "Research for … in Today".
+  - `G` then `P` opens Projects. Inside a folder, the Follow up keys work on its pipeline and People tab.
 - **Sources:** the five sources are Events, Manning, Search, Social and Association.
   - To add a list, pick a source ▸ Paste a company list. Put one company per line, optionally followed by `, industry, note`.
   - Then click "Research N in Today".
 - **Bulk add people:** paste rows into the sheet's Staging tab ▸ set Action (Add / Merge / Skip) ▸ Kinfolk menu ▸ Promote staging.
-- **Keys:** `?` lists every shortcut. `G` then `T`, `F` or `S` switches pages.
+- **Keys:** `?` lists every shortcut. `G` then `T`, `F`, `P` or `S` switches pages.

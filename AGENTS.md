@@ -13,8 +13,8 @@ There is no build step: native ES modules, plain CSS, no dependencies. GitHub Pa
 | `js/store.js` | State, persistence, sheet mapping, derived data, **every action that changes data** |
 | `js/sync.js` | Sheet transport: outbox, flush, pull, connect/disconnect |
 | `js/ui.js` | `html` tagged template (escapes by default), icons, time helpers |
-| `js/views/*.js` | `today`, `followup` (pipeline + spreadsheet), `sources`, `modals` — pure functions returning HTML |
-| `apps-script/Code.gs` | The sheet bridge (v3) |
+| `js/views/*.js` | `today`, `followup` (pipeline + spreadsheet), `projects` (folders + ICP builder), `sources`, `modals` — pure functions returning HTML |
+| `apps-script/Code.gs` | The sheet bridge (v4) |
 
 Rendering is `root.innerHTML = view()` after every change. Focus and text selection are restored by `id` or `data-bind`.
 
@@ -26,7 +26,7 @@ Keep it small. Prefer extending these patterns over adding a framework or a depe
 
 ## Product model
 
-There are three pages, in a daily loop: **Today → Follow up → Sources**.
+There are four pages. Three form a daily loop, **Today → Follow up → Sources**, and **Projects** organises the work by asset.
 
 **Today** is the home page.
 1. A "Follow-ups first" strip shows people who are late or due today.
@@ -47,6 +47,14 @@ There are three pages, in a daily loop: **Today → Follow up → Sources**.
   - Multi-select: Shift-click selects a range from the selected row, Cmd/Ctrl-click adds or removes one row, `Shift`+`↑`/`↓` extends. With 2+ selected, a bulk bar sets Active lead, Unqualified, Cold storage, Back in pipeline, follow-up 24H/2D/1W and project, or removes them (two clicks). Bulk actions only touch rows that are visible under the current filters. Selection clears on page or view change.
 
 Filters: search, Active leads only, account, industry (focus industries come first).
+
+**Projects** has one folder per asset (each entry in `state.projects`, the sheet's Projects tab).
+- The overview shows each folder's Touch / WIP / Late counts, people, active leads, wins this month and companies left to research. `+ New folder` adds an asset and opens its ICP.
+- A folder (`#/projects/<id>`) has three tabs. **Pipeline** and **People** are the Follow up board and spreadsheet scoped to people whose `project` is the folder (`state.ui.scope`): filters, multi-select, bulk edits and every Follow up shortcut work there too. Adding a person from inside a folder files them in it. **ICP** is the builder.
+- Folder membership is the person's current `project`, so a person is in one folder at a time, and logging a touch with another project chip moves them.
+- **ICP** (`state.icps[project]`): `{industries[], roles, geography, keywords, summary, pitch, updatedAt}`. Roles, geography and keywords are comma-separated and matched as whole words, case-insensitively.
+  - `fitScore`: industry 40, role 35, geography (`geography`, organization, headline, notes) 15, signals (headline, notes, organization, role, next step) 10, scaled to the criteria that are set. 70%+ is a strong fit, 40%+ partial. Fits show as tags on the folder's cards and as an ICP fit column in its People tab.
+  - The builder rescores everyone live from the draft, splits fits into in this folder / no project / other folders, and can add or move people into the folder, file every unfiled fit at once, tag matching untagged `to_research` companies for the folder, and send you to Today with that project selected.
 
 **Sources** shows the five fixed sources: **Events, Manning, Search, Social, Association**.
 - Each one shows found this week, how many companies are left to research, and how many became active.
@@ -70,6 +78,7 @@ Filters: search, Active leads only, account, industry (focus industries come fir
 | `reportsToId`, `strength` (1–3) | |
 | `createdAt`, `foundAt` | |
 | `headline`, `notes` | Sheet-owned; `notes` is written only on create |
+| `geography` | Sheet-owned, read only; used by ICP scoring |
 
 ### Status
 
@@ -105,9 +114,9 @@ A touch is append-only: `{touch_id, date, person_id, person, next_step, project}
 
 Shortcuts are ignored while typing, while a modal is open (except `Esc`), or when a modifier key is held.
 
-- **Anywhere:** `G` then `T`/`F`/`S` switches page, `N`/`Q` adds a person, `?` shows the help.
+- **Anywhere:** `G` then `T`/`F`/`P`/`S` switches page (P is Projects), `N`/`Q` adds a person, `?` shows the help.
 - **Today:** `S` skips, `X` marks not a fit, `L` logs a find, `Enter` saves.
-- **Follow up:**
+- **Follow up**, and a project folder's Pipeline and People tabs:
   - `↑`/`↓` or `J`/`K` move up and down a column (they stop at the ends). `←`/`→` or `H`/`L` jump to the same row in the next column that has cards. In the spreadsheet only up and down apply. `Esc` clears the selection, `F` or `/` jumps to search.
   - With someone selected: `T` touch, `A` Active lead, `U` Unqualified, `C` cold, `R` back to Touch, `1`/`2`/`3` snooze 24h/2d/1w, `E`/`Enter` edit. With several rows selected in the spreadsheet, `A`/`U`/`C` turn the flag on for all (off if all already have it), `R` puts them all back in the pipeline, and `1`/`2`/`3` snooze them all.
 
@@ -117,14 +126,16 @@ Shortcuts are ignored while typing, while a modal is open (except `Esc`), or whe
 - `kinfolk-v3-people`, `kinfolk-v3-touches`, `kinfolk-v3-targets`, `kinfolk-v3-meta`, `kinfolk-v3-outbox`;
 - `kinfolk-sync-v1`, which holds `{url, token}` and is shared with v2 on purpose.
 
+`kinfolk-v3-meta` also holds `icps` and `newProjects` (folders made on this device that the sheet doesn't list yet).
+
 Saved people that still have `contacted: false` load as Unqualified.
 
 On first load, v3 migrates the v2 keys (`kinfolk-pipe-v2`, `kinfolk-touches-v1`, `kinfolk-meta-v1`, `kinfolk-outbox-v1`) and drops the funnel fields. With no data at all, it starts with demo people plus a sample Association list (target ids `demo*`). Those demo targets are discarded on first sync.
 
 ## Google Sheets sync
 
-- `GET ?token=` returns `{version, people, touches, projects, groups, targets, sources}`.
-- `POST {token, ops}` applies these ops: `upsertPerson`, `deletePerson`, `logTouch`, `upsertTarget`, `deleteTarget`, `upsertSource`, `renameGroup`. Requests are sent as `text/plain`, so there's no CORS preflight.
+- `GET ?token=` returns `{version, people, touches, projects, groups, targets, sources, icps}`.
+- `POST {token, ops}` applies these ops: `upsertPerson`, `deletePerson`, `logTouch`, `upsertTarget`, `deleteTarget`, `upsertSource`, `upsertProject`, `renameGroup`. Requests are sent as `text/plain`, so there's no CORS preflight.
 
 Behaviour:
 - Actions in `store.js` emit ops. Person updates send only the changed sheet fields.
@@ -132,6 +143,7 @@ Behaviour:
 - Kinfolk pulls on start, on tab focus, when the connection comes back, and every 5 minutes, but only once the outbox is empty.
 - Connecting replaces local people with the sheet's.
 - `version >= 3` turns on target and source sync. With an older `Code.gs`, targets stay local and the UI says so. The first v3 pull uploads any targets that were created locally.
+- `version >= 4` turns on folder and ICP sync through `upsertProject`. Projects from the sheet come first; folders in `newProjects` are kept (and uploaded on v4) until the sheet lists them, so a folder deleted in the sheet stays deleted. If the sheet has no ICPs yet, the first v4 pull uploads the local ones; otherwise the sheet's ICPs win.
 
 Status mapping:
 
@@ -145,10 +157,11 @@ Other sheet fields:
 - `active_lead` is `Y` or blank.
 - `follow_up_at` is blank for Prospect and Cold.
 
-`Code.gs` v3:
+`Code.gs` v3 and v4:
 - It writes only the fields on its writable list.
 - It keeps formula cells intact whatever columns they sit in.
 - It adds any missing columns at the end, and creates the `Targets` and `Sources` tabs.
+- v4 adds `icp_industries`, `icp_roles`, `icp_geography`, `icp_keywords`, `icp_summary`, `icp_pitch` and `updated_at` to the Projects tab (one row per folder, keyed by `project`).
 - It never writes the v2 funnel columns.
 
 ## Invariants

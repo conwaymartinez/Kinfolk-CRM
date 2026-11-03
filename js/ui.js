@@ -28,6 +28,7 @@ const P = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
 };
 export const icon = (name, size = 20) =>

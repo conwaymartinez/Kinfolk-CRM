@@ -53,7 +53,7 @@ export function blankPerson(over = {}) {
     id: 0, name: '', organization: '', role: '', industry: '', project: '', email: '', phone: '', source: '',
     nextStep: '', followUpAt: new Date(Date.now() + DAY).toISOString(), stage: 'touch', unqualified: false, cold: false,
     activeLead: false, reportsToId: null, strength: 1, createdAt: new Date().toISOString(), foundAt: '',
-    headline: '', notes: '', ...over,
+    headline: '', notes: '', geography: '', ...over,
   };
 }
 
@@ -109,14 +109,18 @@ export const state = {
   projects: meta?.projects ?? load('kinfolk-meta-v1', {}).projects ?? DEFAULT_PROJECTS,
   groups: meta?.groups ?? load('kinfolk-meta-v1', {}).groups ?? DEFAULT_GROUPS,
   sourceNotes: meta?.sourceNotes ?? {},
+  icps: meta?.icps ?? {},
+  newProjects: meta?.newProjects ?? [], // folders made on this device that the sheet hasn't listed yet
   goal: meta?.goal ?? 10,
   now: Date.now(),
   ui: {
     route: 'today', followView: 'pipeline', search: '', onlyActive: false, account: '', industry: '',
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
+    // Projects: `folder` is the open asset; `scope` limits filters, board and spreadsheet to it.
+    folder: null, folderTab: 'pipeline', scope: '', icpDraft: null, newFolder: null,
   },
-  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false },
+  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false, v4: false },
 };
 
 let emit = () => {};
@@ -126,7 +130,7 @@ export function persist() {
   save(K.people, state.people);
   save(K.touches, state.touches);
   save(K.targets, state.targets);
-  save(K.meta, { projects: state.projects, groups: state.groups, sourceNotes: state.sourceNotes, goal: state.goal });
+  save(K.meta, { projects: state.projects, groups: state.groups, sourceNotes: state.sourceNotes, goal: state.goal, icps: state.icps, newProjects: state.newProjects });
 }
 
 // ───────────── sheet mapping ─────────────
@@ -157,7 +161,7 @@ export function fromSheet(r) {
     cold: status === 'Cold', activeLead: /^(y|yes|true|1)$/i.test(String(r.active_lead ?? '').trim()),
     reportsToId: num(r.reports_to_id), strength: Math.min(3, Math.max(1, Number(r.strength) || 1)),
     createdAt: created, foundAt: r.found_at ? String(r.found_at) : '',
-    headline: String(r.headline ?? ''), notes: String(r.notes ?? ''),
+    headline: String(r.headline ?? ''), notes: String(r.notes ?? ''), geography: String(r.geography ?? ''),
   });
 }
 
@@ -177,7 +181,8 @@ export const targetFromSheet = (r) => ({
 export const byId = (id) => state.people.find((p) => p.id === id);
 
 export function matchesFilters(p) {
-  const { search, onlyActive, account, industry } = state.ui;
+  const { search, onlyActive, account, industry, scope } = state.ui;
+  if (scope && p.project !== scope) return false;
   if (onlyActive && !p.activeLead) return false;
   if (account && p.organization !== account) return false;
   if (industry && p.industry !== industry) return false;
@@ -474,4 +479,137 @@ export function bulkSet(ids, field, value) {
 export function bulkRemove(ids) {
   ids.forEach((id) => removePerson(id));
   return `${names(ids.length)} removed`;
+}
+
+// ───────────── project folders + ICP ─────────────
+// One folder per asset (a project tag). Each folder has its own pipeline (people whose project is
+// that tag) and an Ideal Customer Profile that scores people and researched companies against it.
+
+export const EMPTY_ICP = { industries: [], roles: '', geography: '', keywords: '', summary: '', pitch: '', updatedAt: '' };
+export const icpOf = (project) => ({ ...EMPTY_ICP, ...(state.icps[project] || {}) });
+
+const terms = (s) => String(s || '').split(/[,;\n]/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Whole-word, case-insensitive: "HR" matches "HR Manager", not "Chrome". */
+const hit = (text, list) => list.find((k) => new RegExp(`(^|[^a-z0-9])${reEsc(k)}($|[^a-z0-9])`, 'i').test(text));
+
+function criteria(icp) {
+  return {
+    industries: (icp.industries || []).map((i) => i.toLowerCase()),
+    roles: terms(icp.roles), geo: terms(icp.geography), kw: terms(icp.keywords),
+  };
+}
+export const hasIcp = (icp) => { const c = criteria(icp); return !!(c.industries.length || c.roles.length || c.geo.length || c.kw.length); };
+
+/** Weights: industry 40, role 35, geography 15, keywords 10 — scaled to the criteria you've set. */
+export function fitScore(p, icp) {
+  const c = criteria(icp);
+  let total = 0;
+  let got = 0;
+  const hits = [];
+  const add = (w, found) => { total += w; if (found) { got += w; hits.push(found); } };
+  if (c.industries.length) add(40, c.industries.includes((p.industry || '').toLowerCase()) && p.industry);
+  if (c.roles.length) add(35, hit(p.role || '', c.roles));
+  if (c.geo.length) add(15, hit(`${p.geography} ${p.organization} ${p.headline} ${p.notes}`, c.geo));
+  if (c.kw.length) add(10, hit(`${p.organization} ${p.role} ${p.headline} ${p.notes} ${p.nextStep}`, c.kw));
+  if (!total) return null;
+  const score = Math.round((got / total) * 100);
+  return { score, tier: score >= 70 ? 'strong' : score >= 40 ? 'partial' : 'weak', hits };
+}
+
+/** Companies on source lists: industry, plus keywords/geography in the company name or note. */
+export function targetFit(t, icp) {
+  const c = criteria(icp);
+  let total = 0;
+  let got = 0;
+  if (c.industries.length) { total += 40; if (c.industries.includes((t.industry || '').toLowerCase())) got += 40; }
+  const text = `${t.company} ${t.hint} ${t.list}`;
+  if (c.geo.length) { total += 15; if (hit(text, c.geo)) got += 15; }
+  if (c.kw.length) { total += 10; if (hit(text, c.kw)) got += 10; }
+  if (!total) return null;
+  return Math.round((got / total) * 100);
+}
+
+/** Everyone scored against a folder's ICP, best first. Only partial and strong fits. */
+export function icpMatches(project, icp = icpOf(project)) {
+  if (!hasIcp(icp)) return [];
+  return state.people
+    .map((p) => ({ p, fit: fitScore(p, icp) }))
+    .filter((x) => x.fit && x.fit.score >= 40)
+    .sort((a, b) => b.fit.score - a.fit.score || a.p.name.localeCompare(b.p.name));
+}
+
+export function targetMatches(project, icp = icpOf(project)) {
+  if (!hasIcp(icp)) return [];
+  return state.targets
+    .filter((t) => t.status === 'to_research')
+    .map((t) => ({ t, score: targetFit(t, icp) }))
+    .filter((x) => x.score !== null && x.score >= 40)
+    .sort((a, b) => b.score - a.score);
+}
+
+export function folderStats(id) {
+  const now = state.now;
+  const ppl = state.people.filter((p) => p.project === id);
+  const by = (s) => ppl.filter((p) => statusOf(p, now) === s).length;
+  const recent = (t, days) => now - new Date(t.date).getTime() < days * DAY;
+  return {
+    people: ppl.length, touch: by('touch'), wip: by('wip'), late: by('late'), unqualified: by('unqualified'), cold: by('cold'),
+    active: ppl.filter((p) => p.activeLead).length,
+    week: state.touches.filter((t) => t.project === id && recent(t, 7)).length,
+    wins: state.touches.filter((t) => t.project === id && recent(t, 30) && isWin(t.next_step)).length,
+    toResearch: state.targets.filter((t) => t.project === id && t.status === 'to_research').length,
+  };
+}
+
+export const projectToSheet = (id) => {
+  const i = icpOf(id);
+  return {
+    project: id, icp_industries: i.industries.join(', '), icp_roles: i.roles, icp_geography: i.geography,
+    icp_keywords: i.keywords, icp_summary: i.summary, icp_pitch: i.pitch,
+  };
+};
+export const icpFromSheet = (r) => ({
+  industries: terms(r.icp_industries).length ? String(r.icp_industries).split(/[,;]/).map((x) => x.trim()).filter(Boolean) : [],
+  roles: String(r.icp_roles ?? ''), geography: String(r.icp_geography ?? ''), keywords: String(r.icp_keywords ?? ''),
+  summary: String(r.icp_summary ?? ''), pitch: String(r.icp_pitch ?? ''), updatedAt: r.updated_at ? String(r.updated_at) : '',
+});
+
+function pushProject(id) {
+  if (state.sync.v4) emit([{ op: 'upsertProject', project: projectToSheet(id) }]);
+}
+
+/** A new asset folder. Returns the folder id, or '' if the name is empty. Existing names are reused. */
+export function addProject(name) {
+  const n = name.trim();
+  if (!n) return '';
+  const existing = state.projects.find((p) => p.toLowerCase() === n.toLowerCase());
+  if (existing) return existing;
+  state.projects.push(n);
+  state.newProjects.push(n);
+  pushProject(n);
+  return n;
+}
+
+export function saveIcp(project, icp) {
+  state.icps[project] = {
+    industries: [...new Set(icp.industries)], roles: icp.roles.trim(), geography: icp.geography.trim(),
+    keywords: icp.keywords.trim(), summary: icp.summary.trim(), pitch: icp.pitch.trim(), updatedAt: new Date().toISOString(),
+  };
+  pushProject(project);
+}
+
+/** Put people in a folder (sets their current project). Returns a toast message. */
+export function assignToProject(ids, project) {
+  ids.forEach((id) => patchPerson(id, { project }));
+  return `${names(ids.length)} added to ${project}`;
+}
+
+/** Tag researched-company targets for a folder so Today can queue them by project. */
+export function tagTargets(ids, project) {
+  ids.forEach((id) => {
+    const t = state.targets.find((x) => x.id === id);
+    if (t) { t.project = project; pushTarget(t); }
+  });
+  return `${ids.length} ${ids.length === 1 ? 'company' : 'companies'} tagged for ${project}`;
 }

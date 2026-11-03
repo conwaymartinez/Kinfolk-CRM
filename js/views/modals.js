@@ -156,7 +156,7 @@ const KEYS = [
   ['Act on them', [['T', '', 'Log a touch'], ['A', '', 'Active lead on / off'], ['U', '', 'Unqualified on / off'], ['C', '', 'Cold storage on / off'], ['R', '', 'Back to Touch, due tomorrow'],
     ['1 2 3', '', 'Follow up in 24H / 2 days / 1 week'], ['E', 'Enter', 'Open the full record']]],
   ['Prospecting (Today)', [['Enter', '', 'Save prospect'], ['S', '', "Can't find anyone yet"], ['X', '', 'Not a fit'], ['L', '', 'Log a find']]],
-  ['Anywhere', [['G', 'then T F S', 'Go to Today / Follow up / Sources'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
+  ['Anywhere', [['G', 'then T F P S', 'Go to Today / Follow up / Projects / Sources'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
 ];
 
 function keysModal() {

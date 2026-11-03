@@ -1,7 +1,7 @@
 // Google Sheets sync through the Apps Script web app (apps-script/Code.gs).
 // Every change is an op in an outbox; the outbox flushes in batches and survives reloads/offline.
 import {
-  state, setEmitter, load, save, KEYS, fromSheet, targetFromSheet, targetToSheet, SOURCE_IDS,
+  state, setEmitter, load, save, KEYS, fromSheet, targetFromSheet, targetToSheet, SOURCE_IDS, projectToSheet, icpFromSheet,
 } from './store.js';
 
 const OUTBOX = 'kinfolk-v3-outbox';
@@ -89,7 +89,27 @@ function apply(data) {
   })).filter((t) => t.touch_id);
   state.people = (data.people || []).map((r) => fromSheet(r)).filter((p) => p.id && p.name);
   state.touches = touches;
-  if (data.projects?.length) state.projects = data.projects;
+  // Folders: the sheet's Projects tab, plus any made on this device that it doesn't list yet.
+  // Only folders created here are carried over, so a folder deleted in the sheet stays deleted.
+  const remoteProjects = (data.projects || []).map(String);
+  const localOnly = state.newProjects.filter((p) => !remoteProjects.some((r) => r.toLowerCase() === p.toLowerCase()));
+  state.newProjects = localOnly;
+  if (remoteProjects.length) state.projects = [...remoteProjects, ...localOnly];
+
+  state.sync.v4 = Number(data.version) >= 4;
+  if (state.sync.v4) {
+    const remoteIcps = {};
+    (data.icps || []).forEach((r) => { if (r.project) remoteIcps[String(r.project)] = icpFromSheet(r); });
+    const hasRemote = Object.values(remoteIcps).some((i) => i.updatedAt || i.industries.length || i.roles || i.summary);
+    // First sync after upgrading Code.gs: upload folders and ICPs made while local-only.
+    const upload = new Set(localOnly);
+    if (!hasRemote) Object.keys(state.icps).forEach((id) => upload.add(id));
+    if (upload.size) {
+      outbox.push(...[...upload].map((id) => ({ op: 'upsertProject', project: projectToSheet(id) })));
+      saveOutbox();
+    }
+    if (hasRemote) state.icps = { ...state.icps, ...remoteIcps };
+  }
   if (data.groups?.length) state.groups = data.groups;
 
   state.sync.v3 = Number(data.version) >= 3;

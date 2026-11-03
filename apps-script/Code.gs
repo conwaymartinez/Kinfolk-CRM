@@ -1,5 +1,5 @@
 /**
- * Kinfolk ⇄ Google Sheets bridge — v3 (Today / Follow up / Sources).
+ * Kinfolk ⇄ Google Sheets bridge — v4 (Today / Follow up / Projects / Sources).
  *
  * Paste this whole file into Extensions ▸ Apps Script of the Kinfolk Database sheet,
  * run `setup` once, then Deploy ▸ New deployment ▸ Web app
@@ -11,9 +11,14 @@
  *  - New tabs, created automatically: `Targets` (company lists to research) and `Sources` (where to look).
  *  - Writes keep formula cells intact wherever they sit, and missing columns are added at the end.
  *  - The funnel columns from v2 (`funnel_stage`, `stage_history`) are left alone and no longer written.
+ *
+ * What changed in v4:
+ *  - The Projects tab is one row per asset folder and gains ICP columns (`icp_industries`, `icp_roles`,
+ *    `icp_geography`, `icp_keywords`, `icp_summary`, `icp_pitch`, `updated_at`), added at the end.
+ *  - New op `upsertProject` adds a folder or saves its ICP. Existing Projects columns are left alone.
  */
 
-const VERSION = 3;
+const VERSION = 4;
 const TZ = 'Asia/Manila';
 const TOKEN_PROP = 'KINFOLK_TOKEN';
 
@@ -37,6 +42,8 @@ const TOUCH_FIELDS = ['touch_id', 'date', 'person_id', 'person', 'next_step', 'p
 const TARGET_FIELDS = ['target_id', 'company', 'industry', 'hint', 'source', 'list', 'project', 'status', 'person_id',
   'skipped_at', 'created_at', 'updated_at'];
 const SOURCE_FIELDS = ['source', 'where'];
+const PROJECT_FIELDS = ['project', 'icp_industries', 'icp_roles', 'icp_geography', 'icp_keywords', 'icp_summary', 'icp_pitch',
+  'updated_at'];
 const SOURCE_NAMES = ['Events', 'Manning', 'Search', 'Social', 'Association'];
 const DATE_FIELDS = ['follow_up_at', 'created_at', 'updated_at', 'date', 'found_at', 'skipped_at'];
 
@@ -77,6 +84,7 @@ function ensureSheets_() {
   ensureColumns_(sheet_(ss, PEOPLE, PEOPLE_FIELDS), PEOPLE_FIELDS);
   ensureColumns_(sheet_(ss, TOUCHES, TOUCH_FIELDS), TOUCH_FIELDS);
   ensureColumns_(sheet_(ss, TARGETS, TARGET_FIELDS), TARGET_FIELDS);
+  ensureColumns_(sheet_(ss, PROJECTS, PROJECT_FIELDS), PROJECT_FIELDS);
   const src = sheet_(ss, SOURCES, SOURCE_FIELDS);
   ensureColumns_(src, SOURCE_FIELDS);
   const have = readTable_(SOURCES, SOURCE_FIELDS).map(function (r) { return String(r.source); });
@@ -131,6 +139,7 @@ function handle_(params, body) {
         touches: table_(TOUCHES, 'touch_id'),
         targets: table_(TARGETS, 'target_id'),
         sources: table_(SOURCES, 'source'),
+        projects: table_(PROJECTS, 'project'),
       };
       ops.forEach(function (op) {
         try { results.push(apply_(ctx, op)); }
@@ -162,6 +171,7 @@ function readAll_() {
       .map(function (g) { return { name: String(g.industry).trim(), focus: String(g.focus).toUpperCase() === 'Y' }; }),
     targets: readTable_(TARGETS, TARGET_FIELDS).filter(function (t) { return t.target_id !== '' && t.company !== ''; }),
     sources: readTable_(SOURCES, SOURCE_FIELDS).filter(function (s) { return s.source !== ''; }),
+    icps: readTable_(PROJECTS, PROJECT_FIELDS).filter(function (p) { return String(p.project).trim() !== ''; }),
   };
 }
 
@@ -242,6 +252,7 @@ function apply_(ctx, op) {
     case 'upsertTarget': return upsertTarget_(ctx, op.target || {});
     case 'deleteTarget': return { ok: true, id: op.id, deleted: deleteRow_(ctx.targets, String(op.id)) };
     case 'upsertSource': return upsertSource_(ctx, op.source || {});
+    case 'upsertProject': return upsertProject_(ctx, op.project || {});
     case 'renameGroup': return renameGroup(op.from, op.to);
     default: return { ok: false, error: 'unknown op ' + op.op };
   }
@@ -274,6 +285,15 @@ function upsertSource_(ctx, s) {
   if (!s.source) return { ok: false, error: 'missing source' };
   writeRow_(ctx.sources, String(s.source), s, SOURCE_FIELDS);
   return { ok: true, source: s.source };
+}
+
+/** Adds an asset folder (a row in Projects) or saves its ICP. */
+function upsertProject_(ctx, p) {
+  const key = String(p.project || '').trim();
+  if (!key) return { ok: false, error: 'missing project' };
+  p.project = key;
+  const created = writeRow_(ctx.projects, key, p, PROJECT_FIELDS);
+  return { ok: true, project: key, created: created };
 }
 
 // ───────────────────────────── formulas ─────────────────────────────
