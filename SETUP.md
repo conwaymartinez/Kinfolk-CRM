@@ -2,6 +2,28 @@
 
 Kinfolk is plain HTML, CSS and JavaScript with no build step. GitHub Pages serves this repo as it is.
 
+## Upgrading to v5 (one Stage per person)
+
+v5 replaces Status, Stage, Active lead and Unqualified with **one Stage**:
+
+| Stage | Means | Shows on |
+|---|---|---|
+| Prospect | Reachable, not engaged yet | Sources › Prospects |
+| Attention / Interest / Desire / Action | Engaged | Follow up board (one column each) |
+| Cold | Dead end for now | Nowhere (Spreadsheet and search only) |
+
+1. Open your Kinfolk sheet ▸ Extensions ▸ Apps Script, replace all of `Code.gs` with `apps-script/Code.gs` from this repo, save.
+2. Deploy ▸ Manage deployments ▸ pencil icon ▸ Version: **New version** ▸ Deploy. The URL and token stay the same.
+3. Reload Kinfolk. On the first sync the script copies People to a **People before v5** tab, then gives every row one stage:
+   - next step starting Rejected, Out of Geography/Network/Country, Parked, No way in… → **Cold**;
+   - old Cold or Prospect: touched with a live next step → **Attention**, otherwise → **Prospect**;
+   - old Touch → **Attention** and WIP → **Interest**, unless a higher stage was already set;
+   - Active lead → at least **Desire**.
+
+   `status` becomes a mirror (Prospect / Touch / Cold) so the Dashboard keeps working; `active_lead` is cleared. To see the counts, use Kinfolk menu ▸ Migrate to stages (v5). To undo, copy the backup tab back over People.
+
+Until step 2 is done, Kinfolk works out stages from the old columns on each sync and Sources shows a notice.
+
 ## Upgrading to v4 (funnel stages and the Cold pool)
 
 Same steps as below: paste the new `apps-script/Code.gs`, then Deploy ▸ Manage deployments ▸ edit ▸ Version: **New version**. v4 reads and writes the `funnel_stage` and `stage_history` columns again, so stages set in the v2 build come back. Until you redeploy, Cold still syncs (it is the Cold status) but Attention / Interest / Desire / Action reset to Attention on each pull.
@@ -53,11 +75,11 @@ In Kinfolk, click the sync pill at the bottom of the left rail ▸ paste the URL
   - Research the next company on your list and save the person who decides on space (`Enter`).
   - `S` skips a company for now; `X` marks it not a fit.
   - `L` logs someone you found at an event, while manning, searching or on social.
-  - Every find lands in Follow up › Touch with "First message" due tomorrow.
-- **Follow up:** the Touch / WIP / Late board, plus the Spreadsheet of everyone.
-  - Select a card, then `T` to log a touch, `A` to toggle Active lead, `C` for cold storage, and `1` `2` `3` to snooze.
+  - Every find lands in Sources › Prospects with "First message" due tomorrow.
+- **Follow up:** a board with one column per engaged stage (drag to change stage), plus the Spreadsheet of everyone.
+  - Select a card, then `T` to log a touch, `]` / `[` to move a stage up / down, `C` for Cold, `P` back to Prospects, and `1` `2` `3` to snooze.
   - A next step starting `SV:` or `IP:` is a win.
-- **Sources:** the five sources are Events, Manning, Search, Social and Association.
+- **Sources:** Prospects to reach out to, then the five sources: Events, Manning, Search, Social and Association.
   - To add a list, pick a source ▸ Paste a company list. Put one company per line, optionally followed by `, industry, note`.
   - Then click "Research N in Today".
 - **Bulk add people:** paste rows into the sheet's Staging tab ▸ set Action (Add / Merge / Skip) ▸ Kinfolk menu ▸ Promote staging.

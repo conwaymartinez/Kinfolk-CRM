@@ -20,29 +20,24 @@ function personModal(m) {
   const last = orig ? touchesFor(orig.id) : [];
   const inds = industries();
   const preset = PRESETS.find((p) => p.id === m.preset);
-  const saveLabel = m.touch && d.cold ? 'Log touch · stay Cold' : m.touch ? (orig ? 'Save & log touch' : 'Add & log touch') : orig ? 'Save changes' : 'Add person';
+  const saveLabel = m.touch && d.stage === 'prospect' ? 'Log touch · stay Prospect' : m.touch && d.stage === 'cold' ? 'Log touch · back to Attention' : m.touch ? (orig ? 'Save & log touch' : 'Add & log touch') : orig ? 'Save changes' : 'Add person';
   const sub = orig ? (m.touch ? 'Log a touch' : 'Update follow-up') : 'New person';
   return shell(orig ? orig.name : 'Add to the pipe', sub, html`
     <form class="stack" data-form="person" autocomplete="off">
-      <div class="checks">
-        <label class="check"><input type="checkbox" data-bind="draft.activeLead" ${d.activeLead ? 'checked' : ''}>
-          <span><strong>Active lead</strong><span class="muted small block">Engaged: a real opportunity</span></span></label>
-        <label class="check"><input type="checkbox" data-bind="draft.unqualified" ${d.unqualified ? 'checked' : ''}>
-          <span><strong>Unqualified</strong><span class="muted small block">Not vetted or not a fit yet</span></span></label>
-      </div>
       <div class="field">Stage
         <div class="stage-picker" role="group" aria-label="Stage">
           ${STAGES.map((s, i) => {
-            const at = STAGES.findIndex((x) => x.id === d.funnel);
-            return html`<button type="button" class="stage-btn s-${s.id} ${i <= at ? 'reached' : ''} ${d.funnel === s.id ? 'on' : ''}"
-              data-action="draft-stage" data-value="${s.id}" aria-pressed="${d.funnel === s.id}" ${d.unqualified ? 'disabled' : ''}>${s.label}</button>`;
+            const at = STAGES.findIndex((x) => x.id === d.stage);
+            const reached = d.stage !== 'cold' && s.id !== 'cold' && i <= at;
+            return html`<button type="button" class="stage-btn s-${s.id} ${reached || d.stage === s.id ? 'reached' : ''} ${d.stage === s.id ? 'on' : ''}"
+              data-action="draft-stage" data-value="${s.id}" aria-pressed="${d.stage === s.id}">${s.label}</button>`;
           })}
         </div>
-        <span class="muted small">${d.unqualified ? 'No stage while Unqualified'
-          : d.funnel === 'cold' ? 'Not engaged yet · lives in Sources › Cold pool, off the Follow up board'
-          : STAGES.find((s) => s.id === d.funnel)?.desc ?? ''}</span>
+        <span class="muted small">${d.stage === 'prospect' ? 'Not engaged yet · waits in Sources › Prospects, off the Follow up board'
+          : d.stage === 'cold' ? 'Dead end for now · off Follow up and Sources, still in the Spreadsheet'
+          : `${STAGES.find((s) => s.id === d.stage)?.desc ?? ''} · on the Follow up board`}</span>
         ${orig?.stageHistory?.length ? html`<ol class="stage-history" aria-label="Stage history">
-          ${[...orig.stageHistory].reverse().slice(0, 6).map((h) => html`<li><span class="dot s-${h.stage}" aria-hidden="true"></span>${stageLabel(h.stage)}
+          ${[...orig.stageHistory].reverse().slice(0, 6).map((h) => html`<li><span class="dot s-${h.stage}" aria-hidden="true"></span>${stageLabel(h.stage) || h.stage}
             <span class="muted">${new Date(h.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span></li>`)}
         </ol>` : ''}
       </div>
@@ -65,10 +60,10 @@ function personModal(m) {
 
       <div class="field">Next follow-up
         <div class="row wrap">
-          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.unqualified ? 'disabled' : ''} aria-label="Follow-up date and time">
-          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.unqualified ? 'disabled' : ''}>${p.label}</button>`)}
+          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.stage === 'cold' ? 'disabled' : ''} aria-label="Follow-up date and time">
+          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.stage === 'cold' ? 'disabled' : ''}>${p.label}</button>`)}
         </div>
-        <span class="muted small">${d.unqualified ? 'None while Unqualified' : preset ? preset.title : ''}</span>
+        <span class="muted small">${d.stage === 'cold' ? 'None while Cold' : preset ? preset.title : ''}</span>
       </div>
 
       <div class="grid2">
@@ -129,7 +124,7 @@ function findModal(m) {
         ${state.projects.map((p) => html`<button type="button" class="chip ${d.project === p ? 'on' : ''}" data-action="find-project" data-value="${p}">${p}</button>`)}
       </div>
       ${d.error ? html`<p class="error" role="alert">${d.error}</p>` : ''}
-      <p class="muted small">Counts toward today's goal. They land in Sources › Cold pool with “First message” due tomorrow.</p>
+      <p class="muted small">Counts toward today's goal. They land in Sources › Prospects with “First message” due tomorrow.</p>
       <div class="modal-foot"><span class="grow"></span>
         <button type="button" class="btn" data-action="close-modal">Cancel</button>
         <button type="submit" class="btn primary">Save find</button></div>
@@ -155,7 +150,7 @@ function syncModal(m) {
       <p class="small ${s.status === 'error' ? 'error' : 'muted'}">${s.message || (s.config
         ? `${syncLabel()}${s.lastSync ? ' · last synced ' + new Date(s.lastSync).toLocaleTimeString() : ''}. Edits save to the sheet.`
         : 'Not connected. Everything is saved in this browser only.')}</p>
-      ${s.config && !s.v3 ? html`<p class="notice small">Your sheet is running an older Code.gs. People and touches sync, but Active lead, finds and company lists need the new Code.gs (see SETUP.md).</p>` : ''}
+      ${s.config && !s.v3 ? html`<p class="notice small">Your sheet is running an older Code.gs. People and touches sync, but finds, company lists and stages need the new Code.gs (see SETUP.md).</p>` : ''}
       <div class="modal-foot">
         ${s.config ? html`<button type="button" class="btn danger-ghost" data-action="disconnect">Disconnect</button>
           <button type="button" class="btn" data-action="pull">Pull now</button>` : ''}
@@ -167,7 +162,7 @@ function syncModal(m) {
 
 const KEYS = [
   ['Pick someone', [['↑ ↓', 'J K', 'Up and down a column'], ['← →', 'H L', 'Across columns'], ['Esc', '', 'Clear the selection'], ['F', '/', 'Search']]],
-  ['Act on them', [['T', '', 'Log a touch'], ['A', '', 'Active lead on / off'], ['U', '', 'Unqualified on / off'], ['C', '', 'To the Cold pool / back to Attention'], ['R', '', 'Back to Touch, due tomorrow'],
+  ['Act on them', [['T', '', 'Log a touch'], [']', '[', 'Up / down a stage'], ['C', '', 'Cold on / off (back to Attention)'], ['P', '', 'Back to Prospects'],
     ['1 2 3', '', 'Follow up in 24H / 2 days / 1 week'], ['E', 'Enter', 'Open the full record']]],
   ['Prospecting (Today)', [['Enter', '', 'Save prospect'], ['S', '', "Can't find anyone yet"], ['X', '', 'Not a fit'], ['L', '', 'Log a find']]],
   ['Anywhere', [['G', 'then T F S', 'Go to Today / Follow up / Sources'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
