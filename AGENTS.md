@@ -49,6 +49,7 @@ There are three pages, in a daily loop: **Today → Follow up → Leads**. Each 
 Filters: search, account, industry (focus industries come first). Cards and rows carry a stage tag.
 
 **Leads** (route `#/leads`; `#/sources` still works; the view lives in `views/sources.js`) starts with **To warm up**, then the five fixed sources: **Events, Manning, Search, Social, Association**.
+- A **search bar** at the top (`state.ui.pool.search`, separate from Follow up's search) filters To warm up (name, organization, role, project, industry, source, next step, email, phone) and the selected source's companies and logged finds (company, industry, note, list, project, person found). While searching, each source card shows its match count, and the source panel links to other sources that match.
 - Each one shows found this week, how many companies are left to research, and how many of its people are engaged now.
 - Each has an editable "where to look" note.
 - You can paste a company list into a source (one per line: `company, industry, note`).
@@ -125,6 +126,7 @@ Shortcuts are ignored while typing, while a modal is open (except `Esc`), or whe
 
 - **Anywhere:** `G` then `T`/`F`/`L` switches page (`S` still goes to Leads), `N`/`Q` adds a person, `?` shows the help.
 - **Today:** `S` skips, `X` marks not a fit, `L` logs a find, `Enter` saves.
+- **Leads:** `F` or `/` jumps to search.
 - **Follow up:**
   - `↑`/`↓` or `J`/`K` move up and down a column (they stop at the ends). `←`/`→` or `H`/`L` jump to the same row in the next column that has cards. In the spreadsheet only up and down apply. `Esc` clears the selection, `F` or `/` jumps to search.
   - With someone selected: `T` touch, `]`/`[` stage up/down, `P` back to Leads, `U` Unqualified on/off, `1`/`2`/`3` snooze 24h/2d/1w, `E`/`Enter` edit. With several rows selected in the spreadsheet, the same keys apply to all of them (`U` makes all Unqualified, or all back to Marketing if they're all Unqualified already).

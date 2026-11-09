@@ -1,6 +1,6 @@
 // Leads: everyone not engaged yet (new finds and anyone gone cold), then the five hunting grounds and their lists.
-import { html, plural, rel } from '../ui.js';
-import { state, SOURCES, sourceStats, sourceWhere, prospects, prospectStats, coldness, addedAt, COLDNESS, isEngaged, stageLabel } from '../store.js';
+import { html, plural, rel, icon } from '../ui.js';
+import { state, SOURCES, sourceStats, sourceWhere, prospects, prospectStats, coldness, addedAt, COLDNESS, isEngaged, stageLabel, matchesLead, matchesTarget } from '../store.js';
 
 const STATE_LABEL = { to_research: 'To research', found: 'Found', not_fit: 'Not a fit' };
 
@@ -88,7 +88,8 @@ function prospectsSection() {
               </td>
             </tr>`;
           })}</tbody></table></div>`
-        : html`<p class="col-empty">${source ? `No leads from ${source}.` : 'No leads. New finds land here.'}</p>`}
+        : html`<p class="col-empty">${state.ui.pool.search.trim() ? `No leads to warm up match “${state.ui.pool.search.trim()}”${source ? ` in ${source}` : ''}.`
+          : source ? `No leads from ${source}.` : 'No leads. New finds land here.'}</p>`}
       <div class="legend small muted"><strong class="small">Coldness</strong>
         ${COLDNESS.map((b) => html`<span><span class="coldness c-${b.id}">${b.label}</span> ${b.range}</span>`)}
         <span>· days since the last touch, or since added if never touched</span></div>
@@ -97,12 +98,17 @@ function prospectsSection() {
 
 export function renderSources() {
   const sel = SOURCES.find((s) => s.id === state.ui.sourceSel) || SOURCES[0];
-  const targets = state.targets.filter((t) => t.source === sel.id)
+  const q = state.ui.pool.search.trim();
+  const targets = state.targets.filter((t) => t.source === sel.id && matchesTarget(t))
     .sort((a, b) => ['to_research', 'found', 'not_fit'].indexOf(a.status) - ['to_research', 'found', 'not_fit'].indexOf(b.status) || a.createdAt.localeCompare(b.createdAt));
   const lists = [...new Set(targets.map((t) => t.list))];
-  const finds = state.people.filter((p) => p.source === sel.id && p.foundAt && !state.targets.some((t) => t.personId === p.id))
+  const finds = state.people.filter((p) => p.source === sel.id && p.foundAt && !state.targets.some((t) => t.personId === p.id) && matchesLead(p))
     .sort((a, b) => b.foundAt.localeCompare(a.foundAt));
   const st = sourceStats(sel.id);
+  // While searching, each hunting ground shows how many of its companies and finds match.
+  const hits = (id) => state.targets.filter((t) => t.source === id && matchesTarget(t)).length
+    + state.people.filter((p) => p.source === id && p.foundAt && !state.targets.some((t) => t.personId === p.id) && matchesLead(p)).length;
+  const elsewhere = q ? SOURCES.filter((s) => s.id !== sel.id && hits(s.id)) : [];
 
   return html`
     <header class="page-head">
@@ -115,6 +121,11 @@ export function renderSources() {
     ${state.sync.config && !state.sync.v3 ? html`<p class="notice">Company lists are saved on this device only until you update <code>Code.gs</code> in your sheet (see SETUP.md).</p>` : ''}
     ${state.sync.config && state.sync.v3 && !state.sync.v6 ? html`<p class="notice">Your sheet runs an older <code>Code.gs</code>, so stages are worked out from the old Status column on each sync. Update it to v7 (see SETUP.md).</p>`
       : state.sync.config && state.sync.v6 && !state.sync.v7 ? html`<p class="notice">Your sheet runs <code>Code.gs</code> v6: the new stage names sync, but Lost reasons aren't saved to the sheet and old rows keep the Attention…Action names there. Update it to v7 (see SETUP.md).</p>` : ''}
+    <div class="toolbar">
+      <label class="search"><span class="sr">Search leads</span>${icon('search', 16)}
+        <input id="lead-search" type="search" data-bind="leadSearch" value="${state.ui.pool.search}" placeholder="Search leads and companies"></label>
+      ${q ? html`<button type="button" class="link small" data-action="lead-search-clear">Clear</button>` : ''}
+    </div>
     ${prospectsSection()}
     <h2>Hunting grounds</h2>
     <div class="source-grid" role="list">
@@ -124,6 +135,7 @@ export function renderSources() {
           <span><span class="name">${i + 1} · ${s.id}</span><span class="muted small block">${s.kind}</span></span>
           <span class="big">${x.foundWeek}<span class="muted small"> found this wk</span></span>
           <span class="small">${s.mode === 'list' ? `${x.left} to research` : 'Open search'} · <span class="accent">${x.engaged} engaged</span></span>
+          ${q ? html`<span class="small ${hits(s.id) ? 'accent' : 'muted'}">${hits(s.id) ? `${hits(s.id)} match` : 'No matches'}</span>` : ''}
         </button>`;
       })}
     </div>
@@ -142,10 +154,12 @@ export function renderSources() {
           ? html`<button class="btn primary" type="button" data-action="research" data-id="${sel.id}">Research ${st.left} in Today →</button>`
           : html`<button class="btn primary" type="button" data-action="log-find" data-source="${sel.id}">+ Log a find</button>`}
       </div>
+      ${q && elsewhere.length ? html`<p class="small muted pad-x">Also matches in ${elsewhere.map((x, i) => html`${i ? ', ' : ''}<button type="button" class="link" data-action="pick-source" data-id="${x.id}">${x.id} (${hits(x.id)})</button>`)}.</p>` : ''}
       ${targets.length ? html`
         <div class="sheet-wrap"><table class="sheet">
           <thead><tr><th>Company</th><th>Industry</th><th>Project</th><th>Person found</th><th>Status</th><th><span class="sr">Actions</span></th></tr></thead>
           <tbody>${targets.map(targetRow)}</tbody></table></div>`
+        : q ? html`<p class="col-empty">No ${sel.id} companies match “${q}”.</p>`
         : html`<p class="col-empty">${sel.mode === 'list'
           ? `No ${sel.id} list yet. Paste the companies and work through them one at a time in Today.`
           : `${sel.id} has no fixed list: log each person as you find them.`}</p>`}
