@@ -71,7 +71,8 @@ function pipeline() {
     <div class="board" aria-label="Follow-up board">
       ${ENGAGED.map((c) => html`
         <section class="col" data-drop="${c.id}" aria-label="${c.label}">
-          <div class="col-head" title="${c.desc}"><h2><span class="tag stage s-${c.id}">${c.label}</span></h2><span class="muted small">every ${c.every} · <strong>${cols[c.id].length}</strong></span></div>
+          <div class="col-head" title="${c.desc}"><h2><span class="dot s-${c.id}"></span>${c.label}<span class="col-n">${cols[c.id].length}</span></h2><span class="tag outline">every ${c.every}</span></div>
+          <div class="col-body" data-scroll="${c.id}">
           ${cols[c.id].length ? cols[c.id].map((p) => html`
             <article class="person-card ${sel === p.id ? 'selected' : ''} ${sel && sel !== p.id ? 'dim' : ''}" draggable="true"
               data-card="${p.id}" tabindex="0" aria-label="${p.name}, ${rel(p.followUpAt, now)}">
@@ -79,6 +80,7 @@ function pipeline() {
                 <span class="timer ${isLate(p, now) ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></div>
               <div class="card-top"><span class="step ${p.nextStep ? '' : 'muted'}" title="${p.nextStep}">${p.nextStep || 'No next step'}</span>${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}</div>
             </article>`) : html`<p class="col-empty">${filtered ? 'No matches here' : 'Nobody here right now'}</p>`}
+          </div>
         </section>`)}
     </div>`;
 }

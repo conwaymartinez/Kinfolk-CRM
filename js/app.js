@@ -16,19 +16,29 @@ state.ui.paste = { open: false, list: '', project: '', text: '' };
 function rail() {
   const r = state.ui.route;
   const late = S.lateCount();
-  const item = (id, href, label, ic, badge) => html`
+  const cols = S.columns();
+  const leads = S.prospectStats().total;
+  const closed = S.closedStats(state.now);
+  const item = (id, href, label, ic, extra) => html`
     <a href="${href}" class="rail-item ${r === id ? 'on' : ''}" aria-current="${r === id ? 'page' : 'false'}">
-      ${icon(ic, 22)}<span>${label}</span>${badge ? html`<span class="badge" aria-label="${badge} late">${badge}</span>` : ''}</a>`;
+      ${icon(ic, 18)}<span class="rail-label">${label}</span>${extra || ''}</a>`;
   return html`
     <nav class="rail" aria-label="Main">
-      <a href="#/today" class="logo" aria-label="Kinfolk home">K</a>
+      <a href="#/today" class="ws" aria-label="Kinfolk home"><span class="logo">K</span><span class="ws-text"><strong>Kinfolk</strong><span>Sales CRM</span></span></a>
       ${item('today', '#/today', 'Today', 'today')}
-      ${item('follow-up', '#/follow-up', 'Follow up', 'clock', late)}
-      ${item('sources', '#/leads', 'Leads', 'sources')}
+      ${item('follow-up', '#/follow-up', 'Follow up', 'clock', late ? html`<span class="badge" aria-label="${late} late">${late}</span>` : '')}
+      ${item('sources', '#/leads', 'Leads', 'sources', leads ? html`<span class="rail-n">${leads}</span>` : '')}
+      <div class="rail-sec">
+        <p class="rail-h">Pipeline</p>
+        ${S.ENGAGED.map((s) => html`<a class="rail-stage" href="#/follow-up" title="${s.desc} · every ${s.every}"><span class="dot s-${s.id}"></span>${s.label}<span class="rail-n">${cols[s.id].length}</span></a>`)}
+        <p class="rail-h">Last 30 days</p>
+        <span class="rail-stage">Won<span class="rail-n">${closed.wonMonth}</span></span>
+        <span class="rail-stage">Lost<span class="rail-n">${closed.lostMonth}</span></span>
+      </div>
       <span class="grow"></span>
-      <button type="button" class="rail-mini" data-action="keys-open" aria-label="Keyboard shortcuts">${icon('keyboard', 18)}</button>
       <button type="button" class="sync-pill ${state.sync.status}" data-action="sync-open"
-        title="${state.sync.lastSync ? 'Last synced ' + new Date(state.sync.lastSync).toLocaleTimeString() : 'Connect to your Google Sheet'}">${syncLabel()}</button>
+        title="${state.sync.lastSync ? 'Last synced ' + new Date(state.sync.lastSync).toLocaleTimeString() : 'Connect to your Google Sheet'}"><span class="dot"></span><span class="sync-text">${syncLabel()}</span></button>
+      <button type="button" class="rail-mini" data-action="keys-open" aria-label="Keyboard shortcuts">${icon('keyboard', 16)}<span class="rail-label">Shortcuts</span><kbd>?</kbd></button>
     </nav>`;
 }
 
@@ -48,10 +58,21 @@ export function render() {
     key = a.id ? '#' + a.id : a.dataset.bind ? `[data-bind="${a.dataset.bind}"]` : a.dataset.card ? `[data-card="${a.dataset.card}"]` : null;
     try { sel = [a.selectionStart, a.selectionEnd]; } catch { sel = null; }
   }
+  // Board columns scroll on their own; keep each one where it was across the re-render.
+  const scrolls = [...root.querySelectorAll('[data-scroll]')].map((el) => [el.dataset.scroll, el.scrollTop]);
   root.innerHTML = String(html`
     <div class="app">${rail()}<main class="main" id="main">${view()}</main></div>
     ${renderModal()}
     <div class="toast-wrap" aria-live="polite">${state.ui.toast ? html`<div class="toast">${state.ui.toast}</div>` : ''}</div>`);
+  scrolls.forEach(([k, top]) => { const el = root.querySelector(`[data-scroll="${k}"]`); if (el) el.scrollTop = top; });
+  // Keep the selected board card in view inside its column (without scrolling the page).
+  const picked = state.ui.route === 'follow-up' && state.ui.selectedId != null && root.querySelector(`.col-body [data-card="${state.ui.selectedId}"]`);
+  if (picked) {
+    const box = picked.parentElement;
+    const top = picked.offsetTop;
+    if (top < box.scrollTop) box.scrollTop = top - 4;
+    else if (top + picked.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top + picked.offsetHeight - box.clientHeight + 4;
+  }
   const target = focusAfter ? root.querySelector(focusAfter) : key ? root.querySelector(key) : null;
   focusAfter = null;
   if (target) {

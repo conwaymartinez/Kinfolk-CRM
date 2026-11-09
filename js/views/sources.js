@@ -71,7 +71,7 @@ function warmTab() {
   return html`<section class="lead-list" aria-label="To warm up">
     ${listTools('prospect')}
     ${rows.length ? html`
-      <div class="sheet-wrap"><table class="sheet compact">
+      <div class="sheet-wrap"><table class="sheet compact lead-table">
         <thead><tr><th>Person</th><th>Added</th><th title="Days since the last touch, or since added if never touched: ${legend}">Coldness</th><th>Source</th><th>Next step</th><th>Follow-up</th><th><span class="sr">Actions</span></th></tr></thead>
         <tbody>${rows.map((p) => {
           const c = coldness(p, now);
@@ -99,7 +99,7 @@ function unqTab() {
   return html`<section class="lead-list" aria-label="Unqualified">
     ${listTools('unqualified')}
     ${rows.length ? html`
-      <div class="sheet-wrap"><table class="sheet compact">
+      <div class="sheet-wrap"><table class="sheet compact lead-table">
         <thead><tr><th>Person</th><th>Marked</th><th>Source</th><th>Last next step</th><th><span class="sr">Actions</span></th></tr></thead>
         <tbody>${rows.map(({ p, at }) => html`<tr draggable="true" data-drag-person="${p.id}" data-lead-row="${p.id}" data-list="unq" title="${DRAG_HINT}" class="${isPicked(p.id) ? 'picked' : ''}">
           <td class="who"><button type="button" class="link name" data-action="edit" data-id="${p.id}">${p.name}</button>${who(p) ? html` <span class="muted small">${who(p)}</span>` : ''}</td>
