@@ -1,4 +1,4 @@
-// Sources: the five hunting grounds, their company lists, and what each one yields.
+// Leads: everyone not engaged yet (new finds and anyone gone cold), then the five hunting grounds and their lists.
 import { html, plural, rel } from '../ui.js';
 import { state, SOURCES, sourceStats, sourceWhere, prospects, prospectStats, coldness, addedAt, COLDNESS, isEngaged, stageLabel } from '../store.js';
 
@@ -37,8 +37,8 @@ function pasteForm(src) {
     </form>`;
 }
 
-// Prospects: everyone not engaged yet, newest first. Coldness grows with the days since the last touch.
-// Touch logs a touch and keeps them here on the usual follow-up timer; → Attention moves them onto Follow up.
+// Everyone at stage Prospect, newest first. Being here means cold: the only questions are whether you've touched
+// them, whether they've responded (→ Attention, onto Follow up) and whether they're not a fit (Unqualified).
 function prospectsSection() {
   const now = state.now;
   const { source, sort } = state.ui.pool;
@@ -47,17 +47,17 @@ function prospectsSection() {
   const chip = (id, label) => html`<button type="button" class="chip ${source === id ? 'on' : ''}" data-action="pool-source" data-value="${id}" aria-pressed="${source === id}">${label} ${st.bySource(id)}</button>`;
   const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return html`
-    <section class="card flush pool" aria-label="Prospects">
+    <section class="card flush pool" aria-label="Leads to warm up">
       <div class="panel-head">
         <div class="stack-xs grow">
-          <h2>Prospects</h2>
+          <h2>To warm up</h2>
           <span class="muted small">${plural(st.total, 'person', 'people')} not engaged yet${st.late ? html` · <span class="late-text">${st.late} late</span>` : ''}${st.today ? ` · ${st.today} due today` : ''}.
-            Touch keeps someone here on a follow-up timer; → Attention moves them to Follow up.</span>
+            Touch to reach out (they stay here), → Attention once they respond, Unqualified if they're not a fit.</span>
         </div>
       </div>
       <div class="pool-tools">
         <label class="small muted row">Sort
-          <select class="pill-select" data-bind="poolSort" aria-label="Sort prospects">
+          <select class="pill-select" data-bind="poolSort" aria-label="Sort leads">
             <option value="new" ${sort === 'new' ? 'selected' : ''}>Date added · newest first</option>
             <option value="old" ${sort === 'old' ? 'selected' : ''}>Date added · oldest first</option>
           </select></label>
@@ -68,7 +68,7 @@ function prospectsSection() {
       </div>
       ${rows.length ? html`
         <div class="sheet-wrap"><table class="sheet">
-          <thead><tr><th>Person</th><th>Added</th><th>Coldness</th><th>Source</th><th>Next step</th><th>Follow-up</th><th><span class="sr">Actions</span></th></tr></thead>
+          <thead><tr><th>Person</th><th>Added</th><th>Touched</th><th>Source</th><th>Next step</th><th>Follow-up</th><th><span class="sr">Actions</span></th></tr></thead>
           <tbody>${rows.map((p) => {
             const c = coldness(p, now);
             const late = new Date(p.followUpAt).getTime() <= now;
@@ -76,18 +76,19 @@ function prospectsSection() {
               <td><button type="button" class="link name" data-action="edit" data-id="${p.id}">${p.name}</button>
                 <span class="muted small block">${[p.organization, p.project].filter(Boolean).join(' · ') || 'Unassigned'}</span></td>
               <td class="small">${day(addedAt(p))}</td>
-              <td><span class="coldness c-${c.band.id}" title="${c.touched ? 'Days since the last touch' : 'Days since added, never touched'}">${c.band.label} · ${c.days}d</span></td>
+              <td><span class="coldness c-${c.band.id}" title="${c.touched ? 'Days since the last touch' : 'Days since added, never touched'}">${c.band.label} · ${c.days}d</span>
+                <span class="muted small block">${c.count ? plural(c.count, 'touch', 'touches') : 'Never touched'}</span></td>
               <td class="small">${p.source || html`<span class="muted">—</span>`}</td>
               <td class="small">${p.nextStep || html`<span class="muted">No next step</span>`}</td>
               <td>${p.followUpAt ? html`<span class="timer ${late ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>` : html`<span class="muted small">Not scheduled</span>`}</td>
               <td class="actions">
-                <button type="button" class="btn sm" data-action="pool-touch" data-id="${p.id}" title="Log a touch, stay a Prospect">Touch</button>
+                <button type="button" class="btn sm" data-action="pool-touch" data-id="${p.id}" title="Log a touch; they stay in Leads">Touch</button>
                 <button type="button" class="btn sm primary" data-action="pool-warm" data-id="${p.id}" title="Move to Attention, onto Follow up">→ Attention</button>
-                <button type="button" class="btn sm ghost" data-action="pool-cold" data-id="${p.id}" title="Dead end for now: off Sources and Follow up">Cold</button>
+                <button type="button" class="btn sm ghost" data-action="pool-unqualified" data-id="${p.id}" title="Not a fit, don't revive: off Leads and Follow up">Unqualified</button>
               </td>
             </tr>`;
           })}</tbody></table></div>`
-        : html`<p class="col-empty">${source ? `No prospects from ${source}.` : 'No prospects. New finds land here.'}</p>`}
+        : html`<p class="col-empty">${source ? `No leads from ${source}.` : 'No leads. New finds land here.'}</p>`}
       <div class="legend small muted"><strong class="small">Coldness</strong>
         ${COLDNESS.map((b) => html`<span><span class="coldness c-${b.id}">${b.label}</span> ${b.range}</span>`)}
         <span>· days since the last touch, or since added if never touched</span></div>
@@ -105,14 +106,14 @@ export function renderSources() {
 
   return html`
     <header class="page-head">
-      <div><h1>Sources</h1><p class="muted">Your hunting grounds: where to look for new people, and which ones pay off.</p></div>
+      <div><h1>Leads</h1><p class="muted">Who to warm up next, and the hunting grounds where you find them.</p></div>
       <div class="row wrap">
         <button class="btn" type="button" data-action="log-find" data-source="${sel.id}">+ Log a find</button>
         <button class="btn primary" type="button" data-action="paste-open">Paste a company list</button>
       </div>
     </header>
     ${state.sync.config && !state.sync.v3 ? html`<p class="notice">Company lists are saved on this device only until you update <code>Code.gs</code> in your sheet (see SETUP.md).</p>` : ''}
-    ${state.sync.config && state.sync.v3 && !state.sync.v5 ? html`<p class="notice">Your sheet runs an older <code>Code.gs</code>, so stages are worked out from the old Status column on each sync. Update it to v5 (see SETUP.md).</p>` : ''}
+    ${state.sync.config && state.sync.v3 && !state.sync.v6 ? html`<p class="notice">Your sheet runs an older <code>Code.gs</code>, so stages are worked out from the old Status column on each sync. Update it to v6 (see SETUP.md).</p>` : ''}
     ${prospectsSection()}
     <h2>Hunting grounds</h2>
     <div class="source-grid" role="list">

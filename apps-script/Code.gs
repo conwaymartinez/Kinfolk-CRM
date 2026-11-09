@@ -1,5 +1,5 @@
 /**
- * Kinfolk ⇄ Google Sheets bridge — v5 (one Stage per person).
+ * Kinfolk ⇄ Google Sheets bridge — v6 (one Stage per person; Leads and Unqualified).
  *
  * Paste this whole file into Extensions ▸ Apps Script of the Kinfolk Database sheet,
  * run `setup` once, then Deploy ▸ New deployment ▸ Web app
@@ -22,10 +22,16 @@
  *  - `status` is a read-only mirror for the Dashboard: Prospect / Touch / Cold. `active_lead` is retired.
  *  - The first time v5 runs it migrates every row once (Kinfolk menu ▸ Migrate to stages shows the result),
  *    after copying People to a "People before v5" backup tab.
+ *
+ * What changed in v6:
+ *  - The "don't revive" stage is Unqualified (it was Cold). Being in Leads (stage prospect) is what cold means now.
+ *  - A v5 sheet is updated once: funnel_stage and stage_history "cold" → "unqualified". Status stays "Cold" for them,
+ *    so the old dropdown and the Dashboard keep working.
  */
 
-const VERSION = 5;
+const VERSION = 6;
 const STAGES_PROP = 'KINFOLK_STAGES_V5';
+const UNQUALIFIED_PROP = 'KINFOLK_STAGES_V6';
 const TZ = 'Asia/Manila';
 const TOKEN_PROP = 'KINFOLK_TOKEN';
 
@@ -60,7 +66,7 @@ function onOpen() {
     .addItem('Promote staging', 'promoteStaging')
     .addItem('Rename group…', 'renameGroupPrompt')
     .addItem('Refresh formulas', 'refreshFormulas')
-    .addItem('Migrate to stages (v5)', 'migrateStagesMenu')
+    .addItem('Migrate to stages (v6)', 'migrateStagesMenu')
     .addItem('Merge duplicate people…', 'mergeDuplicatesMenu')
     .addSeparator()
     .addItem('Show sync token', 'showToken')
@@ -388,12 +394,12 @@ function promoteStaging() {
       if (p.industry) p.industry_check = 'auto';
       // Staging's Status column may hold a stage (Attention…) or an old status (Touch / WIP / Cold).
       const typed = String(at(row, 'stage') || p.status).trim().toLowerCase();
-      const stage = STAGE_IDS.indexOf(typed) >= 0 ? typed : ({ touch: 'attention', wip: 'interest', cold: 'cold' })[typed] || 'prospect';
+      const stage = STAGE_IDS.indexOf(typed) >= 0 ? typed : ({ touch: 'attention', wip: 'interest', cold: 'unqualified' })[typed] || 'prospect';
       p.funnel_stage = stage;
       p.status = statusFor_(stage);
       p.stage_history = JSON.stringify([{ stage: stage, at: now.toISOString() }]);
       delete p.active_lead;
-      if (stage !== 'cold') p.follow_up_at = new Date(now.getTime() + 864e5);
+      if (stage !== 'unqualified') p.follow_up_at = new Date(now.getTime() + 864e5);
       writeRow_(t, String(p.id), p, Object.keys(p));
       rowByName[name.toLowerCase()] = t.rowOf[String(p.id)];
       added++;
@@ -421,17 +427,17 @@ function clearStagingRow_(st, row, header) {
   });
 }
 
-// ───────────────────────────── stages (v5) ─────────────────────────────
+// ───────────────────────────── stages (v5, v6) ─────────────────────────────
 // Kept in step with legacyStage in js/store.js.
 
-const STAGE_IDS = ['prospect', 'attention', 'interest', 'desire', 'action', 'cold'];
+const STAGE_IDS = ['prospect', 'attention', 'interest', 'desire', 'action', 'unqualified'];
 const ENGAGED_IDS = ['attention', 'interest', 'desire', 'action'];
 const DEAD_END = /^\s*(out of (network|geography|country|help)|rejected|complete rejection|parked|no way in|ignored|master'?s student|cannot until)/i;
 const NO_REPLY = /no reply|not replying|email not working|^\s*retap/i;
 
-/** The Dashboard-friendly mirror of a stage. */
+/** The Dashboard-friendly mirror of a stage. Unqualified is "Cold" there: the old dropdown has no Unqualified. */
 function statusFor_(stage) {
-  return stage === 'prospect' ? 'Prospect' : stage === 'cold' ? 'Cold' : 'Touch';
+  return stage === 'prospect' ? 'Prospect' : stage === 'unqualified' ? 'Cold' : 'Touch';
 }
 
 /** One stage from the old markers (Status, funnel_stage, active_lead, next step, whether they were ever touched). */
@@ -439,10 +445,10 @@ function legacyStage_(status, funnel, activeLead, nextStep, touched) {
   const engaged = ENGAGED_IDS.indexOf(funnel) >= 0 ? funnel : '';
   const out = status === 'Cold' || status === 'Prospect' || status === 'Unqualified';
   let s;
-  if (DEAD_END.test(nextStep)) s = 'cold';
+  if (DEAD_END.test(nextStep)) s = 'unqualified';
   else if (out) s = touched && String(nextStep).trim() && !NO_REPLY.test(nextStep) ? (engaged || 'attention') : 'prospect';
   else s = engaged || (status === 'WIP' ? 'interest' : 'attention');
-  if (activeLead && s !== 'cold' && ['prospect', 'attention', 'interest'].indexOf(s) >= 0) s = 'desire';
+  if (activeLead && s !== 'unqualified' && ['prospect', 'attention', 'interest'].indexOf(s) >= 0) s = 'desire';
   return s;
 }
 
@@ -452,7 +458,7 @@ function legacyStage_(status, funnel, activeLead, nextStep, touched) {
  */
 function migrateStages_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty(STAGES_PROP)) return null;
+  if (props.getProperty(STAGES_PROP)) return renameColdToUnqualified_();
   const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName(PEOPLE);
   if (!sh || sh.getLastRow() < 2) { props.setProperty(STAGES_PROP, new Date().toISOString()); return {}; }
@@ -488,6 +494,39 @@ function migrateStages_() {
   sh.getRange(2, col('stage_history'), n, 1).setValues(outHistory);
   if (col('active_lead')) sh.getRange(2, col('active_lead'), n, 1).setValues(outActive);
   props.setProperty(STAGES_PROP, now);
+  props.setProperty(UNQUALIFIED_PROP, now);
+  return counts;
+}
+
+/** Runs once on a sheet migrated by v5: the stage v5 called "cold" is "unqualified" now. Returns counts, or null. */
+function renameColdToUnqualified_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(UNQUALIFIED_PROP)) return null;
+  const sh = SpreadsheetApp.getActive().getSheetByName(PEOPLE);
+  const n = sh ? sh.getLastRow() - 1 : 0;
+  const counts = {};
+  if (n > 0) {
+    const header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    const fc = header.indexOf('funnel_stage') + 1, hc = header.indexOf('stage_history') + 1;
+    if (fc) {
+      const f = sh.getRange(2, fc, n, 1).getValues().map(function (r) {
+        const v = String(r[0]).trim().toLowerCase() === 'cold' ? 'unqualified' : r[0];
+        if (v !== '') counts[v] = (counts[v] || 0) + 1;
+        return [v];
+      });
+      sh.getRange(2, fc, n, 1).setValues(f);
+    }
+    if (hc) {
+      const h = sh.getRange(2, hc, n, 1).getValues().map(function (r) {
+        let a;
+        try { a = JSON.parse(String(r[0] || '[]')); } catch (e) { return r; }
+        if (!Array.isArray(a)) return r;
+        return [JSON.stringify(a.map(function (x) { return x && x.stage === 'cold' ? { stage: 'unqualified', at: x.at } : x; }))];
+      });
+      sh.getRange(2, hc, n, 1).setValues(h);
+    }
+  }
+  props.setProperty(UNQUALIFIED_PROP, new Date().toISOString());
   return counts;
 }
 
@@ -496,7 +535,7 @@ function migrateStagesMenu() {
   const ui = SpreadsheetApp.getUi();
   const counts = migrateStages_();
   if (!counts) {
-    ui.alert('Already on stages', 'This sheet was migrated on ' + PropertiesService.getScriptProperties().getProperty(STAGES_PROP) +
+    ui.alert('Already on stages', 'This sheet was migrated on ' + PropertiesService.getScriptProperties().getProperty(UNQUALIFIED_PROP) +
       '. The original People tab is in "People before v5".', ui.ButtonSet.OK);
     return;
   }
@@ -537,7 +576,7 @@ function findDuplicates_() {
     const k = nameKey_(p.next);
     if (!p.name && k.length >= 4 && byKey[k]) byKey[k].push(p);
   });
-  const rank = function (p) { return STAGE_IDS.indexOf(p.stage) >= 0 && p.stage !== 'cold' ? STAGE_IDS.indexOf(p.stage) : -1; };
+  const rank = function (p) { return STAGE_IDS.indexOf(p.stage) >= 0 && p.stage !== 'unqualified' ? STAGE_IDS.indexOf(p.stage) : -1; };
   const groups = Object.keys(byKey).filter(function (k) { return byKey[k].length > 1; }).map(function (k) {
     const g = byKey[k].slice().sort(function (a, b) {
       return (lastTouch[b.id] || 0) - (lastTouch[a.id] || 0) || rank(b) - rank(a) || b.created - a.created;

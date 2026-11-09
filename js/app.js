@@ -24,7 +24,7 @@ function rail() {
       <a href="#/today" class="logo" aria-label="Kinfolk home">K</a>
       ${item('today', '#/today', 'Today', 'today')}
       ${item('follow-up', '#/follow-up', 'Follow up', 'clock', late)}
-      ${item('sources', '#/sources', 'Sources', 'sources')}
+      ${item('sources', '#/leads', 'Leads', 'sources')}
       <span class="grow"></span>
       <button type="button" class="rail-mini" data-action="keys-open" aria-label="Keyboard shortcuts">${icon('keyboard', 18)}</button>
       <button type="button" class="sync-pill ${state.sync.status}" data-action="sync-open"
@@ -77,7 +77,7 @@ function toast(text) {
 function route() {
   const h = location.hash.replace(/^#\/?/, '');
   if (h.startsWith('follow-up')) { state.ui.route = 'follow-up'; state.ui.followView = h.endsWith('/sheet') ? 'sheet' : 'pipeline'; }
-  else if (h.startsWith('sources')) state.ui.route = 'sources';
+  else if (h.startsWith('leads') || h.startsWith('sources')) state.ui.route = 'sources';
   else state.ui.route = 'today';
   state.ui.selectedId = state.ui.route === 'follow-up' ? state.ui.selectedId : null;
   clearMulti();
@@ -170,8 +170,8 @@ function rowClick(id, e) {
   ui.selectedId = ui.selectedId === id && !wasMulti ? null : id;
 }
 
-/** `C` on a selection: all Cold already → back to Attention, else all to Cold. */
-const coldTarget = (ids) => (ids.every((id) => S.byId(id)?.stage === 'cold') ? 'attention' : 'cold');
+/** `U` on a selection: all Unqualified already → back to Attention, else all to Unqualified. */
+const unqualifiedTarget = (ids) => (ids.every((id) => S.byId(id)?.stage === 'unqualified') ? 'attention' : 'unqualified');
 
 function act(action, el) {
   const id = el?.dataset.id;
@@ -191,7 +191,7 @@ function act(action, el) {
     case 'pool-source': state.ui.pool.source = el.dataset.value; break;
     case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
     case 'pool-warm': toast(S.setStage(num, 'attention')); break;
-    case 'pool-cold': toast(S.setStage(num, 'cold')); break;
+    case 'pool-unqualified': toast(S.setStage(num, 'unqualified')); break;
     case 'stage-filter': state.ui.stage = state.ui.stage === el.dataset.value ? '' : el.dataset.value; break;
     case 'sort': {
       const k = el.dataset.key;
@@ -283,7 +283,7 @@ async function onSubmit(form) {
     if (!f.name.trim()) { f.error = 'Add the name of the person who decides.'; focusAfter = '#find-name'; return render(); }
     if (!f.email.trim() && !f.phone.trim()) { f.error = 'Add an email, phone or LinkedIn so you can reach them.'; return render(); }
     const p = S.saveFind({ ...f, organization: t.company, industry: t.industry, project: t.project, source: t.source }, t.id);
-    toast(`${p.name} saved to Prospects · first message due tomorrow`);
+    toast(`${p.name} saved to Leads · first message due tomorrow`);
     focusAfter = '#research';
     return render();
   }
@@ -293,7 +293,7 @@ async function onSubmit(form) {
     if (!d.email.trim() && !d.phone.trim()) { d.error = 'Add an email, phone or LinkedIn so you can reach them.'; return render(); }
     const p = S.saveFind(d);
     state.ui.modal = null;
-    toast(`${p.name} saved from ${d.source} to Prospects · first message due tomorrow`);
+    toast(`${p.name} saved from ${d.source} to Leads · first message due tomorrow`);
     return render();
   }
   if (kind === 'person') {
@@ -409,7 +409,7 @@ document.addEventListener('keydown', (e) => {
     gPending = 0;
     if (k === 't') return go('#/today');
     if (k === 'f') return go('#/follow-up');
-    if (k === 's') return go('#/sources');
+    if (k === 'l' || k === 's') return go('#/leads');
   }
   if (k === 'g') { gPending = Date.now(); return; }
   if (k === '?') { state.ui.modal = { type: 'keys' }; return render(); }
@@ -449,7 +449,7 @@ document.addEventListener('keydown', (e) => {
   if (k === 'Escape') { state.ui.selectedId = null; clearMulti(); return render(); }
   const ids = picked();
   if (ids.length > 1) {
-    if (k === 'c') { toast(S.bulkStage(ids, coldTarget(ids))); return render(); }
+    if (k === 'u') { toast(S.bulkStage(ids, unqualifiedTarget(ids))); return render(); }
     if (k === 'p') { toast(S.bulkStage(ids, 'prospect')); return render(); }
     if (k === ']' || k === '[') { toast(S.bulkStep(ids, k === ']' ? 1 : -1)); return render(); }
     const bp = S.PRESETS.find((p) => p.key === k);
@@ -459,7 +459,7 @@ document.addEventListener('keydown', (e) => {
   if (!sel || !S.byId(sel)) return;
   if (k === 't') { e.preventDefault(); return openPerson(sel, { touch: true, focus: '#next-step' }); }
   if (k === 'e' || k === 'Enter') { e.preventDefault(); return openPerson(sel); }
-  if (k === 'c') { toast(S.toggleCold(sel)); return render(); }
+  if (k === 'u') { toast(S.toggleUnqualified(sel)); return render(); }
   if (k === 'p') { toast(S.setStage(sel, 'prospect')); return render(); }
   if (k === ']' || k === '[') { toast(S.stepStage(sel, k === ']' ? 1 : -1)); return render(); }
   const preset = S.PRESETS.find((p) => p.key === k);

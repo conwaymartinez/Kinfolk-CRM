@@ -20,7 +20,7 @@ function personModal(m) {
   const last = orig ? touchesFor(orig.id) : [];
   const inds = industries();
   const preset = PRESETS.find((p) => p.id === m.preset);
-  const saveLabel = m.touch && d.stage === 'prospect' ? 'Log touch · stay Prospect' : m.touch && d.stage === 'cold' ? 'Log touch · back to Attention' : m.touch ? (orig ? 'Save & log touch' : 'Add & log touch') : orig ? 'Save changes' : 'Add person';
+  const saveLabel = m.touch && d.stage === 'prospect' ? 'Log touch · stay in Leads' : m.touch && d.stage === 'unqualified' ? 'Log touch · back to Attention' : m.touch ? (orig ? 'Save & log touch' : 'Add & log touch') : orig ? 'Save changes' : 'Add person';
   const sub = orig ? (m.touch ? 'Log a touch' : 'Update follow-up') : 'New person';
   return shell(orig ? orig.name : 'Add to the pipe', sub, html`
     <form class="stack" data-form="person" autocomplete="off">
@@ -28,13 +28,13 @@ function personModal(m) {
         <div class="stage-picker" role="group" aria-label="Stage">
           ${STAGES.map((s, i) => {
             const at = STAGES.findIndex((x) => x.id === d.stage);
-            const reached = d.stage !== 'cold' && s.id !== 'cold' && i <= at;
+            const reached = d.stage !== 'unqualified' && s.id !== 'unqualified' && i <= at;
             return html`<button type="button" class="stage-btn s-${s.id} ${reached || d.stage === s.id ? 'reached' : ''} ${d.stage === s.id ? 'on' : ''}"
               data-action="draft-stage" data-value="${s.id}" aria-pressed="${d.stage === s.id}">${s.label}</button>`;
           })}
         </div>
-        <span class="muted small">${d.stage === 'prospect' ? 'Not engaged yet · waits in Sources › Prospects, off the Follow up board'
-          : d.stage === 'cold' ? 'Dead end for now · off Follow up and Sources, still in the Spreadsheet'
+        <span class="muted small">${d.stage === 'prospect' ? 'Not engaged yet, or gone cold · waits in Leads, off the Follow up board'
+          : d.stage === 'unqualified' ? "Not a fit · don't revive. Off Leads and Follow up; search finds them"
           : `${STAGES.find((s) => s.id === d.stage)?.desc ?? ''} · on the Follow up board`}</span>
         ${orig?.stageHistory?.length ? html`<ol class="stage-history" aria-label="Stage history">
           ${[...orig.stageHistory].reverse().slice(0, 6).map((h) => html`<li><span class="dot s-${h.stage}" aria-hidden="true"></span>${stageLabel(h.stage) || h.stage}
@@ -60,10 +60,10 @@ function personModal(m) {
 
       <div class="field">Next follow-up
         <div class="row wrap">
-          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.stage === 'cold' ? 'disabled' : ''} aria-label="Follow-up date and time">
-          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.stage === 'cold' ? 'disabled' : ''}>${p.label}</button>`)}
+          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.stage === 'unqualified' ? 'disabled' : ''} aria-label="Follow-up date and time">
+          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.stage === 'unqualified' ? 'disabled' : ''}>${p.label}</button>`)}
         </div>
-        <span class="muted small">${d.stage === 'cold' ? 'None while Cold' : preset ? preset.title : ''}</span>
+        <span class="muted small">${d.stage === 'unqualified' ? 'None while Unqualified' : preset ? preset.title : ''}</span>
       </div>
 
       <div class="grid2">
@@ -124,7 +124,7 @@ function findModal(m) {
         ${state.projects.map((p) => html`<button type="button" class="chip ${d.project === p ? 'on' : ''}" data-action="find-project" data-value="${p}">${p}</button>`)}
       </div>
       ${d.error ? html`<p class="error" role="alert">${d.error}</p>` : ''}
-      <p class="muted small">Counts toward today's goal. They land in Sources › Prospects with “First message” due tomorrow.</p>
+      <p class="muted small">Counts toward today's goal. They land in Leads with “First message” due tomorrow.</p>
       <div class="modal-foot"><span class="grow"></span>
         <button type="button" class="btn" data-action="close-modal">Cancel</button>
         <button type="submit" class="btn primary">Save find</button></div>
@@ -162,10 +162,10 @@ function syncModal(m) {
 
 const KEYS = [
   ['Pick someone', [['↑ ↓', 'J K', 'Up and down a column'], ['← →', 'H L', 'Across columns'], ['Esc', '', 'Clear the selection'], ['F', '/', 'Search']]],
-  ['Act on them', [['T', '', 'Log a touch'], [']', '[', 'Up / down a stage'], ['C', '', 'Cold on / off (back to Attention)'], ['P', '', 'Back to Prospects'],
+  ['Act on them', [['T', '', 'Log a touch'], [']', '[', 'Up / down a stage'], ['P', '', 'Back to Leads (gone cold)'], ['U', '', 'Unqualified on / off'],
     ['1 2 3', '', 'Follow up in 24H / 2 days / 1 week'], ['E', 'Enter', 'Open the full record']]],
   ['Prospecting (Today)', [['Enter', '', 'Save prospect'], ['S', '', "Can't find anyone yet"], ['X', '', 'Not a fit'], ['L', '', 'Log a find']]],
-  ['Anywhere', [['G', 'then T F S', 'Go to Today / Follow up / Sources'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
+  ['Anywhere', [['G', 'then T F L', 'Go to Today / Follow up / Leads'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
 ];
 
 function keysModal() {

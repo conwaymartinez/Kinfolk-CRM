@@ -42,9 +42,9 @@ export const isWin = (text) => /^\s*(SV|IP)\s*:/i.test(text || '');
 
 // ───────────── stage: the one marker ─────────────
 // Stage is the only thing you set. It decides where someone shows up:
-//   Prospect → Sources › Prospects (not engaged yet)
+//   Prospect → the Leads page (not engaged yet, or gone cold: worth reviving)
 //   Attention / Interest / Desire / Action → the Follow up board
-//   Cold → nowhere (a dead end for now; still in the spreadsheet and searchable)
+//   Unqualified → nowhere (not a fit, e.g. can't afford it: don't revive; found again through search)
 // Late and Win are worked out from the follow-up date and the next step, never stored.
 export const STAGES = [
   { id: 'prospect', label: 'Prospect', desc: 'Not engaged yet' },
@@ -52,10 +52,10 @@ export const STAGES = [
   { id: 'interest', label: 'Interest', desc: 'Exploring the fit' },
   { id: 'desire', label: 'Desire', desc: 'Building preference' },
   { id: 'action', label: 'Action', desc: 'Ready to commit' },
-  { id: 'cold', label: 'Cold', desc: 'Dead end for now' },
+  { id: 'unqualified', label: 'Unqualified', desc: "Not a fit · don't revive" },
 ];
 export const STAGE_IDS = STAGES.map((s) => s.id);
-export const ENGAGED = STAGES.filter((s) => s.id !== 'prospect' && s.id !== 'cold');
+export const ENGAGED = STAGES.filter((s) => s.id !== 'prospect' && s.id !== 'unqualified');
 const ENGAGED_IDS = ENGAGED.map((s) => s.id);
 export const stageLabel = (id) => STAGES.find((s) => s.id === id)?.label ?? '';
 export const isEngaged = (p) => ENGAGED_IDS.includes(p.stage);
@@ -63,8 +63,13 @@ export const isLate = (p, now = state.now) => isEngaged(p) && new Date(p.followU
 /** No follow-up date, or one that has passed. */
 const dueBy = (p, now = Date.now()) => !p.followUpAt || new Date(p.followUpAt).getTime() <= now;
 
-/** The sheet's `status` column mirrors the stage in the old words, so dropdowns and Dashboard formulas keep working. */
-export const sheetStatus = (stage) => (stage === 'prospect' ? 'Prospect' : stage === 'cold' ? 'Cold' : 'Touch');
+/**
+ * The sheet's `status` column mirrors the stage in the old words, so dropdowns and Dashboard formulas keep working.
+ * Unqualified is written as "Cold" there: the old dropdown has no Unqualified.
+ */
+export const sheetStatus = (stage) => (stage === 'prospect' ? 'Prospect' : stage === 'unqualified' ? 'Cold' : 'Touch');
+/** v5 called the "don't revive" stage Cold. */
+const renamed = (stage) => (stage === 'cold' ? 'unqualified' : stage);
 
 /** How long since anyone reached them: days since the last touch, or since added if never touched. */
 export const COLDNESS = [
@@ -78,7 +83,7 @@ export function coldness(p, now = state.now) {
   const last = touchesFor(p.id)[0];
   const from = new Date(last ? last.date : addedAt(p)).getTime();
   const days = Math.max(0, Math.floor((now - from) / DAY));
-  return { days, band: COLDNESS.find((b) => days <= b.max), touched: !!last };
+  return { days, band: COLDNESS.find((b) => days <= b.max), touched: !!last, count: touchesFor(p.id).length };
 }
 
 const parseHistory = (v) => {
@@ -96,7 +101,7 @@ const oldHistory = (v) => parseHistory(v).map((h) => (h.stage === 'cold' ? { ...
 
 /**
  * One stage from the old markers.
- * - A dead-end next step (Rejected, Out of Geography/Network/Country, Parked…) → Cold.
+ * - A dead-end next step (Rejected, Out of Geography/Network/Country, Parked…) → Unqualified.
  * - Old Cold storage or Prospect/Unqualified: touched with a live next step → back on Follow up; otherwise → Prospect.
  * - Old Touch / WIP: keep an engaged funnel stage, else Touch → Attention, WIP → Interest.
  * - Active lead → at least Desire.
@@ -105,10 +110,10 @@ export function legacyStage({ status, funnel, activeLead, nextStep = '', touched
   const engaged = ENGAGED_IDS.includes(funnel) ? funnel : '';
   const out = status === 'Cold' || status === 'Prospect' || status === 'Unqualified';
   let s;
-  if (DEAD_END.test(nextStep)) s = 'cold';
+  if (DEAD_END.test(nextStep)) s = 'unqualified';
   else if (out) s = touched && nextStep.trim() && !NO_REPLY.test(nextStep) ? engaged || 'attention' : 'prospect';
   else s = engaged || (status === 'WIP' ? 'interest' : 'attention');
-  if (activeLead && s !== 'cold' && RANK[s] < RANK.desire) s = 'desire';
+  if (activeLead && s !== 'unqualified' && RANK[s] < RANK.desire) s = 'desire';
   return s;
 }
 
@@ -116,7 +121,9 @@ export function legacyStage({ status, funnel, activeLead, nextStep = '', touched
 function upgradeLocal(people, touches) {
   const touched = new Set(touches.map((t) => Number(t.person_id)));
   return people.map((p) => {
-    if (STAGE_IDS.includes(p.stage) && !('funnel' in p)) return { ...p, stageHistory: parseHistory(p.stageHistory) };
+    if (!('funnel' in p) && STAGE_IDS.includes(renamed(p.stage))) {
+      return { ...p, stage: renamed(p.stage), stageHistory: parseHistory(p.stageHistory).map((h) => ({ ...h, stage: renamed(h.stage) })) };
+    }
     const { funnel, cold, unqualified, contacted, activeLead, ...rest } = p;
     const status = cold ? 'Cold' : unqualified || contacted === false ? 'Prospect' : p.stage === 'wip' ? 'WIP' : 'Touch';
     const stage = legacyStage({ status, funnel, activeLead, nextStep: p.nextStep, touched: touched.has(p.id) });
@@ -196,7 +203,7 @@ export const state = {
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
   },
-  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false, v5: false },
+  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false, v6: false },
 };
 
 let emit = () => {};
@@ -213,7 +220,7 @@ export function persist() {
 export function toSheet(p) {
   const status = sheetStatus(p.stage);
   return {
-    id: p.id, name: p.name, status, follow_up_at: p.stage === 'cold' ? '' : p.followUpAt || '',
+    id: p.id, name: p.name, status, follow_up_at: p.stage === 'unqualified' ? '' : p.followUpAt || '',
     next_step: p.nextStep, project: p.project, organization: p.organization, role: p.role, industry: p.industry,
     reports_to_id: p.reportsToId ?? '', strength: p.strength, email: p.email, phone: p.phone, source: p.source,
     found_at: p.foundAt || '', created_at: p.createdAt,
@@ -235,9 +242,10 @@ export function fromSheet(r, { version = 5, touched = new Set() } = {}) {
   const nextStep = String(r.next_step ?? '');
   let stage;
   let history = parseHistory(r.stage_history);
-  if (version >= 5 || stored === 'prospect') {
-    stage = STAGE_IDS.includes(stored) ? stored
-      : { Prospect: 'prospect', Unqualified: 'prospect', Cold: 'cold', WIP: 'interest' }[status] || 'attention';
+  if (version >= 5 || stored === 'prospect' || stored === 'unqualified') {
+    stage = STAGE_IDS.includes(renamed(stored)) ? renamed(stored)
+      : { Prospect: 'prospect', Unqualified: 'unqualified', Cold: 'unqualified', WIP: 'interest' }[status] || 'attention';
+    history = history.map((h) => ({ ...h, stage: renamed(h.stage) }));
   } else {
     stage = legacyStage({
       status, funnel: stored, nextStep, touched: touched.has(id),
@@ -249,7 +257,7 @@ export function fromSheet(r, { version = 5, touched = new Set() } = {}) {
     id, name: String(r.name ?? ''), organization: String(r.organization || ''), role: String(r.role ?? ''),
     industry: String(r.industry || ''), project: String(r.project ?? ''), email: String(r.email ?? ''),
     phone: String(r.phone ?? ''), source: src, nextStep, stage,
-    // Engaged people always have a follow-up; a Prospect or Cold person may have none ("Not scheduled").
+    // Engaged people always have a follow-up; a Prospect or Unqualified person may have none ("Not scheduled").
     followUpAt: r.follow_up_at ? String(r.follow_up_at)
       : ENGAGED_IDS.includes(stage) ? new Date(new Date(created).getTime() + DAY).toISOString() : '',
     reportsToId: num(r.reports_to_id), strength: Math.min(3, Math.max(1, Number(r.strength) || 1)),
@@ -389,8 +397,8 @@ const tomorrow = () => new Date(Date.now() + DAY).toISOString();
 export function savePerson(draft, original, { touch }) {
   const now = Date.now();
   const d = { ...draft, name: draft.name.trim(), nextStep: draft.nextStep.trim() };
-  // Reaching out to someone Cold means you're working them again.
-  if (touch && d.stage === 'cold') d.stage = 'attention';
+  // Reaching out to someone Unqualified means you're working them again.
+  if (touch && d.stage === 'unqualified') d.stage = 'attention';
   // Logging a touch, or moving someone onto the board, with an overdue date leaves them due tomorrow.
   const joined = original && !isEngaged(original) && isEngaged(d);
   const unchanged = !original || d.followUpAt === original.followUpAt;
@@ -406,7 +414,7 @@ export function savePerson(draft, original, { touch }) {
   }
   if (touch) logTouch(p, d.nextStep, d.project);
   if (touch && isWin(d.nextStep)) return `Win logged for ${p.name}`;
-  if (touch) return `Touch logged for ${p.name}${d.project ? ' · ' + d.project : ''}${p.stage === 'prospect' ? ' · stays in Prospects' : ''}`;
+  if (touch) return `Touch logged for ${p.name}${d.project ? ' · ' + d.project : ''}${p.stage === 'prospect' ? ' · stays in Leads' : ''}`;
   return original ? `${p.name} saved` : `${p.name} added`;
 }
 
@@ -417,7 +425,7 @@ export function removePerson(id) {
 }
 
 /**
- * Set someone's stage (drag on the board, the person modal, keys, Sources buttons). Moving onto the board
+ * Set someone's stage (drag on the board, the person modal, keys, Leads buttons). Moving onto the board
  * with an overdue date makes them due tomorrow. Returns a toast message.
  */
 export function setStage(id, stage) {
@@ -428,30 +436,30 @@ export function setStage(id, stage) {
   const overdue = dueBy(p);
   if (joins && overdue) patch.followUpAt = tomorrow();
   patchPerson(id, patch);
-  if (stage === 'cold') return `${p.name} is Cold · off Follow up and Sources`;
-  if (stage === 'prospect') return `${p.name} is a Prospect · back in Sources`;
+  if (stage === 'unqualified') return `${p.name} is Unqualified · off Follow up and Leads`;
+  if (stage === 'prospect') return `${p.name} is back in Leads`;
   return `${p.name} is now ${stageLabel(stage)}${joins ? ' · on Follow up' : ''}${joins && overdue ? ' · due tomorrow' : ''}`;
 }
 
-/** `]` / `[`: one stage up or down the funnel (Prospect … Action). Cold doesn't step. */
+/** `]` / `[`: one stage up or down the funnel (Prospect … Action). Unqualified doesn't step. */
 export function stepStage(id, dir) {
   const p = byId(id);
   if (!p) return '';
-  if (p.stage === 'cold') return `${p.name} is Cold · press C to bring them back`;
+  if (p.stage === 'unqualified') return `${p.name} is Unqualified · press U to bring them back`;
   const order = ['prospect', ...ENGAGED_IDS];
   const next = order[Math.min(order.length - 1, Math.max(0, order.indexOf(p.stage) + dir))];
   return next === p.stage ? '' : setStage(id, next);
 }
 
-/** `C`: to Cold, or back to Attention. */
-export const toggleCold = (id) => { const p = byId(id); return p ? setStage(id, p.stage === 'cold' ? 'attention' : 'cold') : ''; };
+/** `U`: to Unqualified, or back to Attention. */
+export const toggleUnqualified = (id) => { const p = byId(id); return p ? setStage(id, p.stage === 'unqualified' ? 'attention' : 'unqualified') : ''; };
 
 export function snooze(id, hours, label) {
   const p = patchPerson(id, { followUpAt: new Date(Date.now() + hours * HOUR).toISOString() });
   return p ? `${p.name} · follow up ${label}` : '';
 }
 
-/** Sources › Prospects: everyone not engaged yet. */
+/** The Leads page: everyone not engaged yet (new, or gone cold). */
 export function prospects() {
   const { source, sort } = state.ui.pool;
   const t = (p) => new Date(addedAt(p)).getTime();
@@ -470,7 +478,6 @@ export function prospectStats() {
     late: pool.filter((p) => due(p) <= now).length,
     today: pool.filter((p) => due(p) > now && due(p) < end).length,
     bySource: (id) => pool.filter((p) => (id ? p.source === id : true)).length,
-    cold: state.people.filter((p) => p.stage === 'cold').length,
   };
 }
 
@@ -479,7 +486,7 @@ function pushTarget(t) {
   if (state.sync.v3) emit([{ op: 'upsertTarget', target: targetToSheet(t) }]);
 }
 
-/** A find: someone with a way to reach them. A Prospect in Sources, first message due tomorrow. */
+/** A find: someone with a way to reach them. A Prospect in Leads, first message due tomorrow. */
 export function saveFind(f, targetId) {
   const now = new Date();
   const p = blankPerson({
