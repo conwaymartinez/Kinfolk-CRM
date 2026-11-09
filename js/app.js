@@ -193,6 +193,8 @@ function act(action, el) {
     case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
     case 'pool-warm': toast(S.setStage(num, S.FIRST_ENGAGED)); break;
     case 'pool-unqualified': toast(S.setStage(num, 'unqualified')); break;
+    case 'unq-toggle': state.ui.pool.showUnq = !state.ui.pool.showUnq; break;
+    case 'unq-revive': toast(S.setStage(num, 'prospect')); break;
     case 'stage-filter': state.ui.stage = state.ui.stage === el.dataset.value ? '' : el.dataset.value; break;
     case 'sort': {
       const k = el.dataset.key;
@@ -254,6 +256,7 @@ function onBind(el, final) {
   if (b === 'bulkStage') { if (val) toast(S.bulkStage(picked(), val)); return render(); }
   if (b === 'bulkProject') { if (val !== '__') toast(S.bulkSet(picked(), 'project', val)); return render(); }
   if (b === 'poolSort') { state.ui.pool.sort = val; return render(); }
+  if (b === 'personSource') { toast(S.setSource(Number(el.dataset.id), val)); return render(); }
   if (b === 'leadSearch') { state.ui.pool.search = val; return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
   if (scope === 'today') { state.ui.today[field] = val; return render(); }
@@ -363,29 +366,49 @@ root.addEventListener('input', (e) => { if (e.target.dataset.bind && e.target.ty
 root.addEventListener('change', (e) => { if (e.target.dataset.bind) onBind(e.target, true); });
 root.addEventListener('submit', (e) => { e.preventDefault(); onSubmit(e.target); });
 
+// Drag and drop: board cards onto a stage column (data-drop), and names on Leads onto a source (data-drop-source).
+const dropZone = (e) => {
+  const z = e.target.closest('[data-drop], [data-drop-source]');
+  if (!z) return null;
+  const kind = z.dataset.dropSource ? 'person' : 'card';
+  return e.dataTransfer.types.includes(`kinfolk/${kind}`) ? z : null;
+};
+const clearDrag = () => root.querySelectorAll('.drag-over').forEach((c) => c.classList.remove('drag-over'));
 root.addEventListener('dragstart', (e) => {
-  const card = e.target.closest('[data-card]');
-  if (!card) return;
-  e.dataTransfer.setData('text/plain', card.dataset.card);
+  const el = e.target.closest?.('[data-card], [data-drag-person]');
+  if (!el) return;
+  const kind = el.dataset.card ? 'card' : 'person';
+  const id = el.dataset.card || el.dataset.dragPerson;
+  e.dataTransfer.setData(`kinfolk/${kind}`, id);
+  e.dataTransfer.setData('text/plain', id);
   e.dataTransfer.effectAllowed = 'move';
+  if (kind === 'person') { el.classList.add('dragging'); root.classList.add('dragging-person'); }
+});
+root.addEventListener('dragend', () => {
+  root.querySelectorAll('.dragging').forEach((c) => c.classList.remove('dragging'));
+  root.classList.remove('dragging-person');
+  clearDrag();
 });
 root.addEventListener('dragover', (e) => {
-  const col = e.target.closest('[data-drop]');
-  if (!col) return;
+  const z = dropZone(e);
+  if (!z) return;
   e.preventDefault();
-  root.querySelectorAll('.drag-over').forEach((c) => c !== col && c.classList.remove('drag-over'));
-  col.classList.add('drag-over');
+  e.dataTransfer.dropEffect = 'move';
+  root.querySelectorAll('.drag-over').forEach((c) => c !== z && c.classList.remove('drag-over'));
+  z.classList.add('drag-over');
 });
 root.addEventListener('dragleave', (e) => {
-  const col = e.target.closest('[data-drop]');
-  if (col && !col.contains(e.relatedTarget)) col.classList.remove('drag-over');
+  const z = e.target.closest('[data-drop], [data-drop-source]');
+  if (z && !z.contains(e.relatedTarget)) z.classList.remove('drag-over');
 });
 root.addEventListener('drop', (e) => {
-  const col = e.target.closest('[data-drop]');
-  if (!col) return;
+  const z = dropZone(e);
+  if (!z) return;
   e.preventDefault();
-  const id = Number(e.dataTransfer.getData('text/plain'));
-  toast(S.setStage(id, col.dataset.drop));
+  root.classList.remove('dragging-person');
+  clearDrag();
+  if (z.dataset.dropSource) toast(S.setSource(Number(e.dataTransfer.getData('kinfolk/person')), z.dataset.dropSource));
+  else toast(S.setStage(Number(e.dataTransfer.getData('kinfolk/card')), z.dataset.drop));
   render();
 });
 
