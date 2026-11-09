@@ -267,10 +267,14 @@ details p { margin-top: 6px; }
 .tag.stage { border: 1px solid transparent; }
 .s-prospect { --s-bg: #f3f1ea; --s-ink: #3f3f3b; }
 .s-unqualified { --s-bg: #3f3f3b; --s-ink: #ffffff; }
-.s-attention { --s-bg: #e6eefc; --s-ink: #1e3f99; }
-.s-interest { --s-bg: #cddcfa; --s-ink: #1e3f99; }
-.s-desire { --s-bg: #9fb6ee; --s-ink: #142c6e; }
-.s-action { --s-bg: #2f5bd3; --s-ink: #ffffff; }
+.s-marketing { --s-bg: #e6eefc; --s-ink: #1e3f99; }
+.s-discovery { --s-bg: #cddcfa; --s-ink: #1e3f99; }
+.s-proposal { --s-bg: #9fb6ee; --s-ink: #142c6e; }
+.s-negotiation { --s-bg: #2f5bd3; --s-ink: #ffffff; }
+.s-won { --s-bg: #dcefe1; --s-ink: #1d5a2e; }
+.s-lost { --s-bg: #f6e3df; --s-ink: #8a2c1c; }
+.stage-btn.s-won.on, .stage-btn.s-lost.on, .stage-btn.s-unqualified.on { background: var(--s-bg); color: var(--s-ink); }
+.records { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .tag.stage, .stage-tile, .stage-btn.reached { background: var(--s-bg); color: var(--s-ink); }
 .stage-strip { display: flex; flex-direction: column; gap: 8px; }
 .stage-strip a { font-weight: 600; text-decoration: none; }
@@ -281,8 +285,7 @@ details p { margin-top: 6px; }
 .stage-tile.dim { opacity: 0.45; }
 .stage-tile:hover { border-color: var(--faint); }
 .stage-tile.on:hover { border-color: var(--ink); }
-.stage-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 0.9fr); gap: 4px; }
-.stage-picker .s-unqualified { margin-left: 8px; }
+.stage-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
 .stage-btn { min-height: 40px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer; padding: 0 4px; }
 .stage-btn.on { border: 2px solid var(--ink); font-weight: 700; }
 .stage-history { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
@@ -304,6 +307,5 @@ details p { margin-top: 6px; }
 @media (max-width: 760px) {
   .stage-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stage-picker { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .stage-picker .s-unqualified { margin-left: 0; }
   .stage-tile, .stage-btn, .pool td.actions .btn { min-height: 44px; }
 }

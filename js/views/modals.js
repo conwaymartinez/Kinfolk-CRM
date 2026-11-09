@@ -1,6 +1,6 @@
 // Dialogs: person record, log a find, daily goal, sync settings, keyboard shortcuts.
 import { html, icon, toLocalInput } from '../ui.js';
-import { state, PRESETS, SOURCES, STAGES, stageLabel, accounts, industries, touchesFor, isWin, byId } from '../store.js';
+import { state, PRESETS, SOURCES, STAGES, OFF_IDS, stageLabel, accounts, industries, touchesFor, isWin, byId } from '../store.js';
 import { syncLabel } from '../sync.js';
 
 const shell = (title, sub, body, label = title) => html`
@@ -20,22 +20,30 @@ function personModal(m) {
   const last = orig ? touchesFor(orig.id) : [];
   const inds = industries();
   const preset = PRESETS.find((p) => p.id === m.preset);
-  const saveLabel = m.touch && d.stage === 'prospect' ? 'Log touch · stay in Leads' : m.touch && d.stage === 'unqualified' ? 'Log touch · back to Attention' : m.touch ? (orig ? 'Save & log touch' : 'Add & log touch') : orig ? 'Save changes' : 'Add person';
+  const off = OFF_IDS.includes(d.stage);
+  const stageInfo = STAGES.find((s) => s.id === d.stage);
+  const saveLabel = m.touch && d.stage === 'prospect' ? 'Log touch · stay in Leads' : m.touch && (d.stage === 'unqualified' || d.stage === 'lost') ? 'Log touch · back to Marketing' : m.touch ? (orig ? 'Save & log touch' : 'Add & log touch') : orig ? 'Save changes' : 'Add person';
+  // The funnel in order; Won counts as having passed every step of it.
+  const funnel = STAGES.filter((s) => !OFF_IDS.includes(s.id)).map((s) => s.id);
+  const reachedUpTo = d.stage === 'won' ? funnel.length - 1 : funnel.indexOf(d.stage);
   const sub = orig ? (m.touch ? 'Log a touch' : 'Update follow-up') : 'New person';
   return shell(orig ? orig.name : 'Add to the pipe', sub, html`
     <form class="stack" data-form="person" autocomplete="off">
       <div class="field">Stage
         <div class="stage-picker" role="group" aria-label="Stage">
-          ${STAGES.map((s, i) => {
-            const at = STAGES.findIndex((x) => x.id === d.stage);
-            const reached = d.stage !== 'unqualified' && s.id !== 'unqualified' && i <= at;
+          ${STAGES.map((s) => {
+            const i = funnel.indexOf(s.id);
+            const reached = i >= 0 && i <= reachedUpTo;
             return html`<button type="button" class="stage-btn s-${s.id} ${reached || d.stage === s.id ? 'reached' : ''} ${d.stage === s.id ? 'on' : ''}"
               data-action="draft-stage" data-value="${s.id}" aria-pressed="${d.stage === s.id}">${s.label}</button>`;
           })}
         </div>
         <span class="muted small">${d.stage === 'prospect' ? 'Not engaged yet, or gone cold · waits in Leads, off the Follow up board'
           : d.stage === 'unqualified' ? "Not a fit · don't revive. Off Leads and Follow up; search finds them"
-          : `${STAGES.find((s) => s.id === d.stage)?.desc ?? ''} · on the Follow up board`}</span>
+          : off ? `${stageInfo?.desc ?? ''}. Off Follow up; search finds them`
+          : `${stageInfo?.desc ?? ''} · on the Follow up board · follow up every ${stageInfo?.every ?? ''}`}</span>
+        ${d.stage === 'lost' ? html`<label class="field">Why was it lost?
+          <input id="lost-reason" data-bind="draft.lostReason" value="${d.lostReason || ''}" placeholder="e.g. No budget, went with a competitor, project cancelled"></label>` : ''}
         ${orig?.stageHistory?.length ? html`<ol class="stage-history" aria-label="Stage history">
           ${[...orig.stageHistory].reverse().slice(0, 6).map((h) => html`<li><span class="dot s-${h.stage}" aria-hidden="true"></span>${stageLabel(h.stage) || h.stage}
             <span class="muted">${new Date(h.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span></li>`)}
@@ -60,10 +68,10 @@ function personModal(m) {
 
       <div class="field">Next follow-up
         <div class="row wrap">
-          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.stage === 'unqualified' ? 'disabled' : ''} aria-label="Follow-up date and time">
-          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.stage === 'unqualified' ? 'disabled' : ''}>${p.label}</button>`)}
+          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${off ? 'disabled' : ''} aria-label="Follow-up date and time">
+          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${off ? 'disabled' : ''}>${p.label}</button>`)}
         </div>
-        <span class="muted small">${d.stage === 'unqualified' ? 'None while Unqualified' : preset ? preset.title : ''}</span>
+        <span class="muted small">${off ? `None while ${stageLabel(d.stage)}` : preset ? preset.title : stageInfo?.cadence && m.touch ? `Unless you pick a date, the touch sets it ${stageInfo.every} out (${stageLabel(d.stage)} rhythm)` : ''}</span>
       </div>
 
       <div class="grid2">

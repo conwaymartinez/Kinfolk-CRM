@@ -1,5 +1,5 @@
 /**
- * Kinfolk ⇄ Google Sheets bridge — v6 (one Stage per person; Leads and Unqualified).
+ * Kinfolk ⇄ Google Sheets bridge — v7 (sales stages: Marketing, Discovery, Proposal, Negotiation; Won and Lost).
  *
  * Paste this whole file into Extensions ▸ Apps Script of the Kinfolk Database sheet,
  * run `setup` once, then Deploy ▸ New deployment ▸ Web app
@@ -27,11 +27,18 @@
  *  - The "don't revive" stage is Unqualified (it was Cold). Being in Leads (stage prospect) is what cold means now.
  *  - A v5 sheet is updated once: funnel_stage and stage_history "cold" → "unqualified". Status stays "Cold" for them,
  *    so the old dropdown and the Dashboard keep working.
+ *
+ * What changed in v7:
+ *  - The board stages are Marketing / Discovery / Proposal / Negotiation (follow up every 1W / 1W / 48H / 24H).
+ *    A v6 sheet is updated once: attention → marketing, interest → discovery, desire → proposal, action → negotiation,
+ *    in funnel_stage and stage_history.
+ *  - New record-only stages Won and Lost (off the board; Status "Cold", like Unqualified). New column `lost_reason`.
  */
 
-const VERSION = 6;
+const VERSION = 7;
 const STAGES_PROP = 'KINFOLK_STAGES_V5';
 const UNQUALIFIED_PROP = 'KINFOLK_STAGES_V6';
+const SALES_PROP = 'KINFOLK_STAGES_V7';
 const TZ = 'Asia/Manila';
 const TOKEN_PROP = 'KINFOLK_TOKEN';
 
@@ -45,11 +52,12 @@ const SOURCES = 'Sources';
 
 const PEOPLE_FIELDS = ['id', 'name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role',
   'industry', 'industry_check', 'reports_to_id', 'strength', 'created_at', 'updated_at', 'headline', 'geography',
-  'email', 'phone', 'source', 'active_lead', 'found_at', 'how_i_know', 'notes', 'legacy_id', 'funnel_stage', 'stage_history'];
+  'email', 'phone', 'source', 'active_lead', 'found_at', 'how_i_know', 'notes', 'legacy_id', 'funnel_stage', 'stage_history',
+  'lost_reason'];
 // Fields Kinfolk may change. Everything else (headline, notes, geography…) is sheet-owned.
 const WRITABLE = ['name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role', 'industry',
   'industry_check', 'reports_to_id', 'strength', 'created_at', 'email', 'phone', 'source', 'found_at',
-  'funnel_stage', 'stage_history'];
+  'funnel_stage', 'stage_history', 'lost_reason'];
 // Only written when Kinfolk creates the person.
 const ON_CREATE = ['id', 'headline', 'notes'];
 const TOUCH_FIELDS = ['touch_id', 'date', 'person_id', 'person', 'next_step', 'project'];
@@ -66,7 +74,7 @@ function onOpen() {
     .addItem('Promote staging', 'promoteStaging')
     .addItem('Rename group…', 'renameGroupPrompt')
     .addItem('Refresh formulas', 'refreshFormulas')
-    .addItem('Migrate to stages (v6)', 'migrateStagesMenu')
+    .addItem('Migrate to stages (v7)', 'migrateStagesMenu')
     .addItem('Merge duplicate people…', 'mergeDuplicatesMenu')
     .addSeparator()
     .addItem('Show sync token', 'showToken')
@@ -392,14 +400,14 @@ function promoteStaging() {
       const p = { id: nextId++, created_at: now, strength: 1, status: 'Prospect', industry_check: 'needs review' };
       fields.forEach(function (f) { const v = at(row, f); if (v !== '') p[f] = v; });
       if (p.industry) p.industry_check = 'auto';
-      // Staging's Status column may hold a stage (Attention…) or an old status (Touch / WIP / Cold).
-      const typed = String(at(row, 'stage') || p.status).trim().toLowerCase();
-      const stage = STAGE_IDS.indexOf(typed) >= 0 ? typed : ({ touch: 'attention', wip: 'interest', cold: 'unqualified' })[typed] || 'prospect';
+      // Staging's Status column may hold a stage (Marketing…, or an old name like Attention) or an old status (Touch / WIP / Cold).
+      const typed = renamed_(String(at(row, 'stage') || p.status).trim().toLowerCase());
+      const stage = STAGE_IDS.indexOf(typed) >= 0 ? typed : ({ touch: 'marketing', wip: 'discovery' })[typed] || 'prospect';
       p.funnel_stage = stage;
       p.status = statusFor_(stage);
       p.stage_history = JSON.stringify([{ stage: stage, at: now.toISOString() }]);
       delete p.active_lead;
-      if (stage !== 'unqualified') p.follow_up_at = new Date(now.getTime() + 864e5);
+      if (OFF_IDS.indexOf(stage) < 0) p.follow_up_at = new Date(now.getTime() + 864e5);
       writeRow_(t, String(p.id), p, Object.keys(p));
       rowByName[name.toLowerCase()] = t.rowOf[String(p.id)];
       added++;
@@ -427,28 +435,34 @@ function clearStagingRow_(st, row, header) {
   });
 }
 
-// ───────────────────────────── stages (v5, v6) ─────────────────────────────
+// ───────────────────────────── stages (v5, v6, v7) ─────────────────────────────
 // Kept in step with legacyStage in js/store.js.
 
-const STAGE_IDS = ['prospect', 'attention', 'interest', 'desire', 'action', 'unqualified'];
-const ENGAGED_IDS = ['attention', 'interest', 'desire', 'action'];
+const STAGE_IDS = ['prospect', 'marketing', 'discovery', 'proposal', 'negotiation', 'won', 'lost', 'unqualified'];
+const ENGAGED_IDS = ['marketing', 'discovery', 'proposal', 'negotiation'];
+const OFF_IDS = ['won', 'lost', 'unqualified'];
+/** v6 board names → v7. */
+const SALES_NAMES = { attention: 'marketing', interest: 'discovery', desire: 'proposal', action: 'negotiation' };
+/** Any older stage name → today's: v5's "cold" is Unqualified; v6's Attention…Action are Marketing…Negotiation. */
+function renamed_(stage) { return stage === 'cold' ? 'unqualified' : SALES_NAMES[stage] || stage; }
 const DEAD_END = /^\s*(out of (network|geography|country|help)|rejected|complete rejection|parked|no way in|ignored|master'?s student|cannot until)/i;
 const NO_REPLY = /no reply|not replying|email not working|^\s*retap/i;
 
-/** The Dashboard-friendly mirror of a stage. Unqualified is "Cold" there: the old dropdown has no Unqualified. */
+/** The Dashboard-friendly mirror of a stage. Unqualified, Won and Lost are "Cold" (off the pipeline): the old dropdown has only Prospect / Touch / Cold. */
 function statusFor_(stage) {
-  return stage === 'prospect' ? 'Prospect' : stage === 'unqualified' ? 'Cold' : 'Touch';
+  return stage === 'prospect' ? 'Prospect' : OFF_IDS.indexOf(stage) >= 0 ? 'Cold' : 'Touch';
 }
 
 /** One stage from the old markers (Status, funnel_stage, active_lead, next step, whether they were ever touched). */
 function legacyStage_(status, funnel, activeLead, nextStep, touched) {
-  const engaged = ENGAGED_IDS.indexOf(funnel) >= 0 ? funnel : '';
+  const f = SALES_NAMES[funnel] || funnel;
+  const engaged = ENGAGED_IDS.indexOf(f) >= 0 ? f : '';
   const out = status === 'Cold' || status === 'Prospect' || status === 'Unqualified';
   let s;
   if (DEAD_END.test(nextStep)) s = 'unqualified';
-  else if (out) s = touched && String(nextStep).trim() && !NO_REPLY.test(nextStep) ? (engaged || 'attention') : 'prospect';
-  else s = engaged || (status === 'WIP' ? 'interest' : 'attention');
-  if (activeLead && s !== 'unqualified' && ['prospect', 'attention', 'interest'].indexOf(s) >= 0) s = 'desire';
+  else if (out) s = touched && String(nextStep).trim() && !NO_REPLY.test(nextStep) ? (engaged || 'marketing') : 'prospect';
+  else s = engaged || (status === 'WIP' ? 'discovery' : 'marketing');
+  if (activeLead && s !== 'unqualified' && ['prospect', 'marketing', 'discovery'].indexOf(s) >= 0) s = 'proposal';
   return s;
 }
 
@@ -458,7 +472,11 @@ function legacyStage_(status, funnel, activeLead, nextStep, touched) {
  */
 function migrateStages_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty(STAGES_PROP)) return renameColdToUnqualified_();
+  if (props.getProperty(STAGES_PROP)) {
+    const a = renameStages_({ cold: 'unqualified' }, UNQUALIFIED_PROP);
+    const b = renameStages_(SALES_NAMES, SALES_PROP);
+    return b || a;
+  }
   const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName(PEOPLE);
   if (!sh || sh.getLastRow() < 2) { props.setProperty(STAGES_PROP, new Date().toISOString()); return {}; }
@@ -484,7 +502,7 @@ function migrateStages_() {
     let h = [];
     try { h = JSON.parse(String((history && history[i]) || '[]')); if (!Array.isArray(h)) h = []; } catch (e) { h = []; }
     // In the old history "cold" meant "not engaged yet", which is Prospect now.
-    h = h.map(function (x) { return x && x.stage === 'cold' ? { stage: 'prospect', at: x.at } : x; });
+    h = h.map(function (x) { return x && x.stage ? { stage: x.stage === 'cold' ? 'prospect' : renamed_(x.stage), at: x.at } : x; });
     if (!h.length || h[h.length - 1].stage !== stage) h.push({ stage: stage, at: now });
     outStage.push([stage]); outStatus.push([statusFor_(stage)]); outHistory.push([JSON.stringify(h)]); outActive.push(['']);
     counts[stage] = (counts[stage] || 0) + 1;
@@ -495,22 +513,28 @@ function migrateStages_() {
   if (col('active_lead')) sh.getRange(2, col('active_lead'), n, 1).setValues(outActive);
   props.setProperty(STAGES_PROP, now);
   props.setProperty(UNQUALIFIED_PROP, now);
+  props.setProperty(SALES_PROP, now);
   return counts;
 }
 
-/** Runs once on a sheet migrated by v5: the stage v5 called "cold" is "unqualified" now. Returns counts, or null. */
-function renameColdToUnqualified_() {
+/**
+ * Runs once per property on a sheet already on stages: renames stages in funnel_stage and stage_history.
+ * v6: "cold" → "unqualified". v7: attention / interest / desire / action → marketing / discovery / proposal / negotiation.
+ * Returns the stage counts afterwards, or null if this rename already ran.
+ */
+function renameStages_(map, prop) {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty(UNQUALIFIED_PROP)) return null;
+  if (props.getProperty(prop)) return null;
   const sh = SpreadsheetApp.getActive().getSheetByName(PEOPLE);
   const n = sh ? sh.getLastRow() - 1 : 0;
   const counts = {};
   if (n > 0) {
     const header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
     const fc = header.indexOf('funnel_stage') + 1, hc = header.indexOf('stage_history') + 1;
+    const to = function (v) { const k = String(v).trim().toLowerCase(); return map[k] || v; };
     if (fc) {
       const f = sh.getRange(2, fc, n, 1).getValues().map(function (r) {
-        const v = String(r[0]).trim().toLowerCase() === 'cold' ? 'unqualified' : r[0];
+        const v = to(r[0]);
         if (v !== '') counts[v] = (counts[v] || 0) + 1;
         return [v];
       });
@@ -521,12 +545,12 @@ function renameColdToUnqualified_() {
         let a;
         try { a = JSON.parse(String(r[0] || '[]')); } catch (e) { return r; }
         if (!Array.isArray(a)) return r;
-        return [JSON.stringify(a.map(function (x) { return x && x.stage === 'cold' ? { stage: 'unqualified', at: x.at } : x; }))];
+        return [JSON.stringify(a.map(function (x) { return x && x.stage ? { stage: to(x.stage), at: x.at } : x; }))];
       });
       sh.getRange(2, hc, n, 1).setValues(h);
     }
   }
-  props.setProperty(UNQUALIFIED_PROP, new Date().toISOString());
+  props.setProperty(prop, new Date().toISOString());
   return counts;
 }
 
@@ -535,7 +559,7 @@ function migrateStagesMenu() {
   const ui = SpreadsheetApp.getUi();
   const counts = migrateStages_();
   if (!counts) {
-    ui.alert('Already on stages', 'This sheet was migrated on ' + PropertiesService.getScriptProperties().getProperty(UNQUALIFIED_PROP) +
+    ui.alert('Already on stages', 'This sheet was migrated on ' + PropertiesService.getScriptProperties().getProperty(SALES_PROP) +
       '. The original People tab is in "People before v5".', ui.ButtonSet.OK);
     return;
   }
@@ -576,7 +600,7 @@ function findDuplicates_() {
     const k = nameKey_(p.next);
     if (!p.name && k.length >= 4 && byKey[k]) byKey[k].push(p);
   });
-  const rank = function (p) { return STAGE_IDS.indexOf(p.stage) >= 0 && p.stage !== 'unqualified' ? STAGE_IDS.indexOf(p.stage) : -1; };
+  const rank = function (p) { const s = renamed_(p.stage); return STAGE_IDS.indexOf(s) >= 0 && s !== 'unqualified' && s !== 'lost' ? STAGE_IDS.indexOf(s) : -1; };
   const groups = Object.keys(byKey).filter(function (k) { return byKey[k].length > 1; }).map(function (k) {
     const g = byKey[k].slice().sort(function (a, b) {
       return (lastTouch[b.id] || 0) - (lastTouch[a.id] || 0) || rank(b) - rank(a) || b.created - a.created;
