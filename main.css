@@ -176,6 +176,7 @@ kbd { font: 600 11px/1 var(--font); border: 1px solid currentColor; border-radiu
 .dragging-person .source-card, .dragging-person .chip[data-drop-source] { border-style: dashed; border-color: var(--accent); }
 .source-card.drag-over, .chip.drag-over { box-shadow: 0 0 0 3px var(--accent); background: var(--accent-bg); color: var(--ink); }
 .unq { margin-top: 16px; }
+.pool tr.picked td { background: var(--accent-bg); }
 .col-head { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 4px 6px; }
 .col-head h2 { font-size: 15px; }
 .col-empty { color: var(--muted); font-size: 13px; padding: 16px; text-align: center; }

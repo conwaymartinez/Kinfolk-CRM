@@ -2,7 +2,7 @@
 import { html, icon, rel, plural } from '../ui.js';
 import {
   state, PRESETS, columns, matchesFilters, isWin, isNew, isLate, isEngaged, accounts, industries, lateCount, touchStats,
-  STAGES, STAGE_IDS, ENGAGED, stageLabel, prospectStats, matchesOtherFilters, isOff, closedStats,
+  STAGES, STAGE_IDS, ENGAGED, stageLabel, prospectStats, matchesOtherFilters, isOff, closedStats, SOURCES,
 } from '../store.js';
 
 export const SHEET_COLS = [
@@ -132,6 +132,9 @@ function bulkBar(ids) {
       <select class="pill-select" data-bind="bulkProject" aria-label="Set project for selected">
         <option value="__">Set project…</option><option value="">No project</option>
         ${state.projects.map((p) => html`<option value="${p}">${p}</option>`)}
+      </select>
+      <select class="pill-select" data-bind="bulkSource" aria-label="Set source for selected">
+        <option value="__">Set source…</option>${SOURCES.map((s) => html`<option value="${s.id}">${s.id}</option>`)}<option value="">No source</option>
       </select>
       <span class="grow"></span>
       <button type="button" class="btn sm danger-ghost" data-action="bulk-remove">${state.ui.bulkConfirm ? `Confirm remove ${ids.length}` : 'Remove'}</button>

@@ -5,6 +5,25 @@ import { state, SOURCES, sourceStats, sourceWhere, prospects, prospectStats, col
 const STATE_LABEL = { to_research: 'To research', found: 'Found', not_fit: 'Not a fit' };
 const DRAG_HINT = 'Drag onto a source to move them there';
 
+// Leads selection (Shift-click a range, ⌘/Ctrl-click to add one), like the Follow up spreadsheet.
+const isPicked = (id) => state.ui.pool.picked.includes(id);
+const MOD = typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl';
+
+function leadBulkBar() {
+  const n = state.ui.pool.picked.length;
+  if (n < 2) return '';
+  return html`
+    <div class="bulk-bar" role="toolbar" aria-label="Edit ${n} selected leads">
+      <strong>${n} selected</strong>
+      <select class="pill-select" data-bind="leadBulkSource" aria-label="Set source for selected">
+        <option value="__">Set source…</option>${SOURCES.map((s) => html`<option value="${s.id}">${s.id}</option>`)}<option value="">No source</option>
+      </select>
+      <span class="muted small">or drag any selected row onto a source</span>
+      <span class="grow"></span>
+      <button type="button" class="btn sm" data-action="lead-pick-clear" title="Esc">Clear</button>
+    </div>`;
+}
+
 // The Source cell: a small menu, so moving someone works without dragging too (touch screens, keyboard).
 const sourceSelect = (p) => html`<select id="src-${p.id}" class="pill-select" data-bind="personSource" data-id="${p.id}" aria-label="Source for ${p.name}">
   <option value="" ${p.source ? '' : 'selected'}>—</option>${SOURCES.map((s) => html`<option ${p.source === s.id ? 'selected' : ''}>${s.id}</option>`)}</select>`;
@@ -57,7 +76,7 @@ function prospectsSection() {
         <div class="stack-xs grow">
           <h2>To warm up</h2>
           <span class="muted small">${plural(st.total, 'person', 'people')} not engaged yet${st.late ? html` · <span class="late-text">${st.late} late</span>` : ''}${st.today ? ` · ${st.today} due today` : ''}.
-            Touch to reach out (they stay here), → Marketing once they respond, Unqualified if they're not a fit. Drag a name onto a source to file it there.</span>
+            Touch to reach out (they stay here), → Marketing once they respond, Unqualified if they're not a fit. Drag a name onto a source to file it there; Shift-click or ${MOD}-click names to edit several.</span>
         </div>
       </div>
       <div class="pool-tools">
@@ -77,7 +96,7 @@ function prospectsSection() {
           <tbody>${rows.map((p) => {
             const c = coldness(p, now);
             const late = new Date(p.followUpAt).getTime() <= now;
-            return html`<tr draggable="true" data-drag-person="${p.id}" title="${DRAG_HINT}">
+            return html`<tr draggable="true" data-drag-person="${p.id}" data-lead-row="${p.id}" data-list="pool" title="${DRAG_HINT}" class="${isPicked(p.id) ? 'picked' : ''}">
               <td><button type="button" class="link name" data-action="edit" data-id="${p.id}">${p.name}</button>
                 <span class="muted small block">${[p.organization, p.project].filter(Boolean).join(' · ') || 'Unassigned'}</span></td>
               <td class="small">${day(addedAt(p))}</td>
@@ -122,7 +141,7 @@ function unqualifiedSection() {
       ${!open ? '' : rows.length ? html`
         <div class="sheet-wrap"><table class="sheet">
           <thead><tr><th>Person</th><th>Marked</th><th>Source</th><th>Last next step</th><th><span class="sr">Actions</span></th></tr></thead>
-          <tbody>${rows.map(({ p, at }) => html`<tr draggable="true" data-drag-person="${p.id}" title="${DRAG_HINT}">
+          <tbody>${rows.map(({ p, at }) => html`<tr draggable="true" data-drag-person="${p.id}" data-lead-row="${p.id}" data-list="unq" title="${DRAG_HINT}" class="${isPicked(p.id) ? 'picked' : ''}">
             <td><button type="button" class="link name" data-action="edit" data-id="${p.id}">${p.name}</button>
               <span class="muted small block">${[p.role, p.organization, p.project].filter(Boolean).join(' · ') || 'Unassigned'}</span></td>
             <td class="small">${day(at)}</td>
@@ -166,6 +185,7 @@ export function renderSources() {
         <input id="lead-search" type="search" data-bind="leadSearch" value="${state.ui.pool.search}" placeholder="Search leads and companies"></label>
       ${q ? html`<button type="button" class="link small" data-action="lead-search-clear">Clear</button>` : ''}
     </div>
+    ${leadBulkBar()}
     ${prospectsSection()}
     ${unqualifiedSection()}
     <h2>Hunting grounds</h2>
