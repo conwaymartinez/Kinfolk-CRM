@@ -1,6 +1,6 @@
 // State, persistence, derived data and every action that changes data.
 // Actions queue sheet ops through `emit` (wired up by sync.js).
-import { DAY, HOUR, startOfDay, startOfWeek } from './ui.js';
+import { DAY, HOUR, startOfDay, startOfWeek, plural } from './ui.js';
 
 export const SOURCES = [
   { id: 'Events', kind: 'Exhibitor lists + people met', mode: 'list', where: 'Exhibitor list from the event; cards collected on the day' },
@@ -209,10 +209,11 @@ export const state = {
   groups: meta?.groups ?? load('kinfolk-meta-v1', {}).groups ?? DEFAULT_GROUPS,
   sourceNotes: meta?.sourceNotes ?? {},
   goal: meta?.goal ?? 10,
+  sourceFilled: meta?.sourceFilled ?? false,
   now: Date.now(),
   ui: {
     route: 'today', followView: 'pipeline', search: '', account: '', industry: '', stage: '',
-    pool: { source: '', sort: 'new', search: '', showUnq: true },
+    pool: { source: '', sort: 'new', search: '', showUnq: true, picked: [], anchor: null },
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
   },
@@ -226,7 +227,7 @@ export function persist() {
   save(K.people, state.people);
   save(K.touches, state.touches);
   save(K.targets, state.targets);
-  save(K.meta, { projects: state.projects, groups: state.groups, sourceNotes: state.sourceNotes, goal: state.goal });
+  save(K.meta, { projects: state.projects, groups: state.groups, sourceNotes: state.sourceNotes, goal: state.goal, sourceFilled: state.sourceFilled });
 }
 
 // ───────────── sheet mapping ─────────────
@@ -503,12 +504,32 @@ export function setSource(id, source) {
   return source ? `${p.name} moved to ${source}` : `${p.name} has no source now`;
 }
 
+/** Bulk: set the source for several people (Leads selection, the Follow up bulk bar). */
+export function bulkSource(ids, source) {
+  if (source && !SOURCE_IDS.includes(source)) return '';
+  const moved = ids.filter((id) => { const p = byId(id); return p && p.source !== source && patchPerson(id, { source }); });
+  return `${plural(moved.length, 'person', 'people')} · source set to ${source || 'none'}`;
+}
+
+/**
+ * One-off (9 Nov 2026): everyone without one of the five sources (blank, or an old sheet value such as
+ * "2-LinkedIn") gets Search. Runs once per device after the first pull, flagged in meta as `sourceFilled`.
+ */
+export function fillMissingSources() {
+  if (state.sourceFilled) return '';
+  const ids = state.people.filter((p) => !p.source).map((p) => p.id);
+  state.sourceFilled = true;
+  const msg = ids.length ? bulkSource(ids, 'Search') : '';
+  persist();
+  return msg;
+}
+
 /** Unqualified people, for the Leads page (filtered like To warm up), most recently marked first. */
 export function unqualifiedLeads() {
   const { source } = state.ui.pool;
   const at = (p) => [...(p.stageHistory || [])].reverse().find((h) => h.stage === 'unqualified')?.at || addedAt(p) || '';
   return state.people
-    .filter((p) => p.stage === 'unqualified' && (!source || p.source === source) && matchesLead(p))
+    .filter((p) => p.stage === 'unqualified' && bySourceFilter(p, source) && matchesLead(p))
     .map((p) => ({ p, at: at(p) }))
     .sort((a, b) => b.at.localeCompare(a.at) || a.p.name.localeCompare(b.p.name));
 }
@@ -525,11 +546,13 @@ const hasQuery = (q, ...fields) => fields.join(' ').toLowerCase().includes(q);
 export const matchesLead = (p, q = leadQuery()) => !q || hasQuery(q, p.name, p.organization, p.role, p.project, p.industry, p.source, p.nextStep, p.email, p.phone);
 export const matchesTarget = (t, q = leadQuery()) => !q || hasQuery(q, t.company, t.industry, t.hint, t.list, t.project, byId(t.personId)?.name || '');
 
+const bySourceFilter = (p, id) => !id || p.source === id;
+
 export function prospects() {
   const { source, sort } = state.ui.pool;
   const t = (p) => new Date(addedAt(p)).getTime();
   return state.people
-    .filter((p) => p.stage === 'prospect' && (!source || p.source === source) && matchesLead(p))
+    .filter((p) => p.stage === 'prospect' && bySourceFilter(p, source) && matchesLead(p))
     .sort((a, b) => (sort === 'old' ? t(a) - t(b) : t(b) - t(a)) || a.name.localeCompare(b.name));
 }
 
@@ -542,7 +565,7 @@ export function prospectStats() {
     total: pool.length,
     late: pool.filter((p) => due(p) <= now).length,
     today: pool.filter((p) => due(p) > now && due(p) < end).length,
-    bySource: (id) => pool.filter((p) => (id ? p.source === id : true)).length,
+    bySource: (id) => pool.filter((p) => bySourceFilter(p, id)).length,
   };
 }
 

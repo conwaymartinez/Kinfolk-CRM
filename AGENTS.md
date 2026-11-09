@@ -44,7 +44,7 @@ There are three pages, in a daily loop: **Today → Follow up → Leads**. Each 
 **Follow up** has two views:
 - **Board:** one column per engaged stage (Marketing, Discovery, Proposal, Negotiation), soonest follow-up first, late ones in red. Each column head shows the stage's follow-up rhythm. Dragging a card to another column sets its stage. A line above says how many people wait in Leads and how many deals were won and lost in the last 30 days. Won, Lost and Unqualified people never appear here.
 - **Spreadsheet:** the engaged people, sortable, shown as cards on mobile. Typing a search widens it to everyone (Leads, Won, Lost and Unqualified too), so nobody is out of reach. Above it, the **stage strip**: four tiles (the engaged stages) with counts under the other filters; clicking one filters the spreadsheet. Under the tiles, **Records: Won · Lost** list the closed deals (Lost rows show the reason).
-  - Multi-select: Shift-click selects a range from the selected row, Cmd/Ctrl-click adds or removes one row, `Shift`+`↑`/`↓` extends. With 2+ selected, a bulk bar sets the stage, follow-up 24H/2D/1W and project, or removes them (two clicks). Bulk actions only touch rows that are visible under the current filters. Selection clears on page or view change.
+  - Multi-select: Shift-click selects a range from the selected row, Cmd/Ctrl-click adds or removes one row, `Shift`+`↑`/`↓` extends. With 2+ selected, a bulk bar sets the stage, follow-up 24H/2D/1W, project and source, or removes them (two clicks). Bulk actions only touch rows that are visible under the current filters. Selection clears on page or view change.
 
 Filters: search, account, industry (focus industries come first). Cards and rows carry a stage tag.
 
@@ -60,6 +60,8 @@ Filters: search, account, industry (focus industries come first). Cards and rows
   - **→ Marketing** once they respond: onto Follow up (due within a week, Marketing's rhythm).
   - **Unqualified** when they're not a fit (e.g. can't afford it).
 - **Unqualified** (below To warm up, open by default, Hide/Show toggle `state.ui.pool.showUnq`) lists everyone at stage Unqualified, most recently marked first, under the same source chips and search. Actions: **Back to Leads** (→ Prospect) and **→ Marketing**.
+- **Bulk source:** on To warm up and Unqualified rows, click selects one, Shift-click a range (within the same list), ⌘/Ctrl-click adds or removes one, `Esc` clears (`state.ui.pool.picked` / `anchor`, cleared on page change; `leadRowClick` in app.js). With 2+ selected a bulk bar offers **Set source…**; dragging a selected row onto a source moves all selected. The Follow up spreadsheet's bulk bar has **Set source…** too.
+- **One-off fill (9 Nov 2026):** `fillMissingSources()` sets everyone without one of the five sources (blank, or an old sheet value such as `2-LinkedIn`) to Search, once per device after the first pull (meta `sourceFilled`), and the sheet is updated through the outbox. The old values survive in the sheet's "People before v5" tab.
 - **Moving someone to another source:** drag a name (a To warm up or Unqualified row, or a Logged find) onto a source card or a source chip (`data-drag-person` → `data-drop-source`, `setSource` in store.js). Each row's Source menu does the same without dragging (touch screens). Only the person's `source` changes; a company-list target keeps its own source.
 
 ### Stage: the one marker

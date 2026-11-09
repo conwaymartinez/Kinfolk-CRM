@@ -81,6 +81,7 @@ function route() {
   else state.ui.route = 'today';
   state.ui.selectedId = state.ui.route === 'follow-up' ? state.ui.selectedId : null;
   clearMulti();
+  Object.assign(state.ui.pool, { picked: [], anchor: null });
   render();
   document.getElementById('main')?.scrollTo?.(0, 0);
 }
@@ -170,6 +171,29 @@ function rowClick(id, e) {
   ui.selectedId = ui.selectedId === id && !wasMulti ? null : id;
 }
 
+/**
+ * Leads rows (To warm up, Unqualified): click selects one, Shift-click a range within the same list,
+ * ⌘/Ctrl-click adds or removes one. 2+ selected shows the bulk bar (Set source…).
+ */
+function leadRowClick(row, e) {
+  const pool = state.ui.pool;
+  const id = Number(row.dataset.leadRow);
+  const order = [...root.querySelectorAll(`[data-lead-row][data-list="${row.dataset.list}"]`)].map((r) => Number(r.dataset.leadRow));
+  if (e.shiftKey && pool.anchor && order.includes(pool.anchor)) {
+    const [a, b] = [order.indexOf(pool.anchor), order.indexOf(id)].sort((x, y) => x - y);
+    pool.picked = order.slice(a, b + 1);
+    return;
+  }
+  if (e.metaKey || e.ctrlKey) {
+    pool.picked = pool.picked.includes(id) ? pool.picked.filter((x) => x !== id) : [...pool.picked, id];
+    pool.anchor = id;
+    return;
+  }
+  const only = pool.picked.length === 1 && pool.picked[0] === id;
+  pool.picked = only ? [] : [id];
+  pool.anchor = only ? null : id;
+}
+
 /** `U` on a selection: all Unqualified already → back to Marketing, else all to Unqualified. */
 const unqualifiedTarget = (ids) => (ids.every((id) => S.byId(id)?.stage === 'unqualified') ? S.FIRST_ENGAGED : 'unqualified');
 
@@ -193,6 +217,7 @@ function act(action, el) {
     case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
     case 'pool-warm': toast(S.setStage(num, S.FIRST_ENGAGED)); break;
     case 'pool-unqualified': toast(S.setStage(num, 'unqualified')); break;
+    case 'lead-pick-clear': state.ui.pool.picked = []; state.ui.pool.anchor = null; break;
     case 'unq-toggle': state.ui.pool.showUnq = !state.ui.pool.showUnq; break;
     case 'unq-revive': toast(S.setStage(num, 'prospect')); break;
     case 'stage-filter': state.ui.stage = state.ui.stage === el.dataset.value ? '' : el.dataset.value; break;
@@ -256,6 +281,8 @@ function onBind(el, final) {
   if (b === 'bulkStage') { if (val) toast(S.bulkStage(picked(), val)); return render(); }
   if (b === 'bulkProject') { if (val !== '__') toast(S.bulkSet(picked(), 'project', val)); return render(); }
   if (b === 'poolSort') { state.ui.pool.sort = val; return render(); }
+  if (b === 'leadBulkSource') { if (val !== '__') { toast(S.bulkSource(state.ui.pool.picked, val)); Object.assign(state.ui.pool, { picked: [], anchor: null }); } return render(); }
+  if (b === 'bulkSource') { if (val !== '__') toast(S.bulkSource(picked(), val)); return render(); }
   if (b === 'personSource') { toast(S.setSource(Number(el.dataset.id), val)); return render(); }
   if (b === 'leadSearch') { state.ui.pool.search = val; return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
@@ -348,6 +375,8 @@ root.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (el && el.dataset.action === 'close-modal-bg') { if (e.target === el) closeModal(); return; }
   if (el) { e.preventDefault(); act(el.dataset.action, el); return; }
+  const lead = e.target.closest('[data-lead-row]');
+  if (lead && !e.target.closest('select, input, button, a')) { leadRowClick(lead, e); render(); return; }
   const card = e.target.closest('[data-card], [data-row]');
   if (card) {
     const id = Number(card.dataset.card || card.dataset.row);
@@ -357,7 +386,7 @@ root.addEventListener('click', (e) => {
   }
 });
 // Shift-click on a row selects a range; stop the browser from also selecting the text in between.
-root.addEventListener('mousedown', (e) => { if ((e.shiftKey || e.metaKey || e.ctrlKey) && e.target.closest('[data-row]')) e.preventDefault(); });
+root.addEventListener('mousedown', (e) => { if ((e.shiftKey || e.metaKey || e.ctrlKey) && e.target.closest('[data-row], [data-lead-row]')) e.preventDefault(); });
 root.addEventListener('dblclick', (e) => {
   const card = e.target.closest('[data-card], [data-row]');
   if (card) openPerson(Number(card.dataset.card || card.dataset.row));
@@ -407,7 +436,12 @@ root.addEventListener('drop', (e) => {
   e.preventDefault();
   root.classList.remove('dragging-person');
   clearDrag();
-  if (z.dataset.dropSource) toast(S.setSource(Number(e.dataTransfer.getData('kinfolk/person')), z.dataset.dropSource));
+  if (z.dataset.dropSource) {
+    const id = Number(e.dataTransfer.getData('kinfolk/person'));
+    const picked = state.ui.pool.picked;
+    if (picked.length > 1 && picked.includes(id)) { toast(S.bulkSource(picked, z.dataset.dropSource)); Object.assign(state.ui.pool, { picked: [], anchor: null }); }
+    else toast(S.setSource(id, z.dataset.dropSource));
+  }
   else toast(S.setStage(Number(e.dataTransfer.getData('kinfolk/card')), z.dataset.drop));
   render();
 });
@@ -452,6 +486,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (state.ui.route === 'sources') {
     if (k === 'f' || k === '/') { e.preventDefault(); focusAfter = '#lead-search'; return render(); }
+    if (k === 'Escape' && state.ui.pool.picked.length) { Object.assign(state.ui.pool, { picked: [], anchor: null }); return render(); }
     return;
   }
   if (state.ui.route !== 'follow-up') return;

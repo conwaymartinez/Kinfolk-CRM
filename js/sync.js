@@ -1,7 +1,7 @@
 // Google Sheets sync through the Apps Script web app (apps-script/Code.gs).
 // Every change is an op in an outbox; the outbox flushes in batches and survives reloads/offline.
 import {
-  state, setEmitter, load, save, KEYS, fromSheet, targetFromSheet, targetToSheet, SOURCE_IDS,
+  state, setEmitter, load, save, KEYS, fromSheet, targetFromSheet, targetToSheet, SOURCE_IDS, fillMissingSources,
 } from './store.js';
 
 const OUTBOX = 'kinfolk-v3-outbox';
@@ -127,6 +127,7 @@ export async function pull() {
     const data = await fetchAll(cfg);
     if (outbox.length) { setStatus('synced'); return; } // edits arrived mid-pull; next pull picks it up
     apply(data);
+    fillMissingSources(); // one-off: people without a source → Search (queues the sheet edits)
     state.sync.lastSync = Date.now();
     setStatus('synced');
     if (outbox.length) flush();
@@ -144,8 +145,10 @@ export async function connect(url, token) {
   save(KEYS.sync, cfg);
   state.sync.config = cfg;
   apply(data);
+  fillMissingSources();
   state.sync.lastSync = Date.now();
   setStatus('synced');
+  if (outbox.length) flush();
   return data.people?.length ?? 0;
 }
 
@@ -170,7 +173,7 @@ export function startSync(rerender) {
   onChange = rerender;
   setEmitter(queueOps);
   state.sync.queued = outbox.length;
-  if (!state.sync.config) return;
+  if (!state.sync.config) { fillMissingSources(); return; }
   state.sync.status = 'syncing';
   pull();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pull(); });
