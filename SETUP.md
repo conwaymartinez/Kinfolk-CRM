@@ -2,6 +2,10 @@
 
 Kinfolk is plain HTML, CSS and JavaScript with no build step. GitHub Pages serves this repo as it is.
 
+## Upgrading to v4 (funnel stages and the Cold pool)
+
+Same steps as below: paste the new `apps-script/Code.gs`, then Deploy ▸ Manage deployments ▸ edit ▸ Version: **New version**. v4 reads and writes the `funnel_stage` and `stage_history` columns again, so stages set in the v2 build come back. Until you redeploy, Cold still syncs (it is the Cold status) but Attention / Interest / Desire / Action reset to Attention on each pull.
+
 ## Upgrading from v2 (you already have a sheet and a deployment)
 
 1. Open your Kinfolk sheet ▸ Extensions ▸ Apps Script.

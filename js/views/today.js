@@ -72,7 +72,7 @@ function researchCard(t, total) {
         <button class="btn lg" type="button" data-action="skip-target" data-id="${t.id}">Can't find anyone yet <kbd>S</kbd></button>
         <button class="btn lg" type="button" data-action="notfit-target" data-id="${t.id}">Not a fit <kbd>X</kbd></button>
       </div>
-      <p class="muted small">Saving counts toward today's goal and puts them in Follow up › Touch with “First message” due tomorrow.</p>
+      <p class="muted small">Saving counts toward today's goal and puts them in Sources › Cold pool with “First message” due tomorrow.</p>
     </form>`;
 }
 
@@ -132,7 +132,7 @@ export function renderToday() {
         <div class="stack-sm">
           <div class="row between end wrap">
             <div><h2>Prospecting: find new people</h2>
-              <p class="muted small">Research one company at a time. Messaging happens later, in Follow up.</p></div>
+              <p class="muted small">Research one company at a time. Messaging happens later, from the Cold pool in Sources.</p></div>
             <button class="goal" type="button" data-action="edit-goal" title="Change daily goal">${foundToday.length} of ${goal} found</button>
           </div>
           <div class="progress" role="progressbar" aria-label="Found today" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${foundToday.length}"><div style="width:${pct}%"></div></div>
@@ -145,7 +145,7 @@ export function renderToday() {
         <section class="card stack-sm">
           <h2 class="h3">Found today</h2>
           ${foundToday.length ? foundToday.slice().reverse().slice(0, 6).map((p) => html`
-            <button type="button" class="mini-row" data-action="edit" data-id="${p.id}"><span class="name">${p.name}</span><span class="muted small">${p.organization || p.source} → Touch</span></button>`)
+            <button type="button" class="mini-row" data-action="edit" data-id="${p.id}"><span class="name">${p.name}</span><span class="muted small">${p.organization || p.source} → Cold pool</span></button>`)
             : html`<p class="muted small">Nobody yet. Your first find shows up here.</p>`}
         </section>
         <section class="card stack-sm">

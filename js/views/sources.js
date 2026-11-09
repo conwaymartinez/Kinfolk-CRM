@@ -1,6 +1,6 @@
 // Sources: the five hunting grounds, their company lists, and what each one yields.
-import { html, plural } from '../ui.js';
-import { state, SOURCES, sourceStats, sourceWhere } from '../store.js';
+import { html, plural, rel } from '../ui.js';
+import { state, SOURCES, sourceStats, sourceWhere, coldPool, coldStats, coldness, addedAt, COLDNESS } from '../store.js';
 
 const STATE_LABEL = { to_research: 'To research', found: 'Found → Touch', not_fit: 'Not a fit' };
 
@@ -37,6 +37,63 @@ function pasteForm(src) {
     </form>`;
 }
 
+// The Cold pool: everyone not engaged yet, newest first. Coldness grows with the days since the last touch.
+// Touch logs a touch and keeps them here on the usual follow-up timer; → Attention moves them onto Follow up.
+function coldPoolSection() {
+  const now = state.now;
+  const { source, sort } = state.ui.pool;
+  const rows = coldPool();
+  const st = coldStats();
+  const chip = (id, label) => html`<button type="button" class="chip ${source === id ? 'on' : ''}" data-action="pool-source" data-value="${id}" aria-pressed="${source === id}">${label} ${st.bySource(id)}</button>`;
+  const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return html`
+    <section class="card flush pool" aria-label="Cold pool">
+      <div class="panel-head">
+        <div class="stack-xs grow">
+          <h2>Cold pool</h2>
+          <span class="muted small">${plural(st.total, 'person', 'people')} not engaged yet${st.late ? html` · <span class="late-text">${st.late} late</span>` : ''}${st.today ? ` · ${st.today} due today` : ''}.
+            Touch keeps someone here on a follow-up timer; → Attention moves them to Follow up.</span>
+        </div>
+      </div>
+      <div class="pool-tools">
+        <label class="small muted row">Sort
+          <select class="pill-select" data-bind="poolSort" aria-label="Sort the Cold pool">
+            <option value="new" ${sort === 'new' ? 'selected' : ''}>Date added · newest first</option>
+            <option value="old" ${sort === 'old' ? 'selected' : ''}>Date added · oldest first</option>
+          </select></label>
+        <span class="sep" aria-hidden="true"></span>
+        <span class="small muted">Source</span>
+        ${chip('', 'All')}
+        ${SOURCES.map((s) => chip(s.id, s.id))}
+      </div>
+      ${rows.length ? html`
+        <div class="sheet-wrap"><table class="sheet">
+          <thead><tr><th>Person</th><th>Added</th><th>Coldness</th><th>Source</th><th>Next step</th><th>Follow-up</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody>${rows.map((p) => {
+            const c = coldness(p, now);
+            const late = new Date(p.followUpAt).getTime() <= now;
+            return html`<tr>
+              <td><button type="button" class="link name" data-action="edit" data-id="${p.id}">${p.name}</button>
+                <span class="muted small block">${[p.organization, p.project].filter(Boolean).join(' · ') || 'Unassigned'}</span></td>
+              <td class="small">${day(addedAt(p))}</td>
+              <td><span class="coldness c-${c.band.id}" title="${c.touched ? 'Days since the last touch' : 'Days since added, never touched'}">${c.band.label} · ${c.days}d</span></td>
+              <td class="small">${p.source || html`<span class="muted">—</span>`}</td>
+              <td class="small">${p.nextStep || html`<span class="muted">No next step</span>`}</td>
+              <td><span class="timer ${late ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></td>
+              <td class="actions">
+                <button type="button" class="btn sm" data-action="pool-touch" data-id="${p.id}" title="Log a touch, stay Cold">Touch</button>
+                <button type="button" class="btn sm primary" data-action="pool-warm" data-id="${p.id}" title="Move to Attention, onto Follow up">→ Attention</button>
+                <button type="button" class="btn sm ghost" data-action="pool-notfit" data-id="${p.id}" title="Mark Unqualified">Not a fit</button>
+              </td>
+            </tr>`;
+          })}</tbody></table></div>`
+        : html`<p class="col-empty">${source ? `Nobody cold from ${source}.` : 'Nobody cold. New finds land here.'}</p>`}
+      <div class="legend small muted"><strong class="small">Coldness</strong>
+        ${COLDNESS.map((b) => html`<span><span class="coldness c-${b.id}">${b.label}</span> ${b.range}</span>`)}
+        <span>· days since the last touch, or since added if never touched</span></div>
+    </section>`;
+}
+
 export function renderSources() {
   const sel = SOURCES.find((s) => s.id === state.ui.sourceSel) || SOURCES[0];
   const targets = state.targets.filter((t) => t.source === sel.id)
@@ -55,6 +112,9 @@ export function renderSources() {
       </div>
     </header>
     ${state.sync.config && !state.sync.v3 ? html`<p class="notice">Company lists are saved on this device only until you update <code>Code.gs</code> in your sheet (see SETUP.md).</p>` : ''}
+    ${state.sync.config && state.sync.v3 && !state.sync.v4 ? html`<p class="notice">Stages other than Cold reset on each sync until you update <code>Code.gs</code> to v4 in your sheet (see SETUP.md).</p>` : ''}
+    ${coldPoolSection()}
+    <h2>Hunting grounds</h2>
     <div class="source-grid" role="list">
       ${SOURCES.map((s, i) => {
         const x = sourceStats(s.id);

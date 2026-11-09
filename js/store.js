@@ -48,16 +48,69 @@ export function statusOf(p, now) {
 }
 export const STATUS_LABEL = { unqualified: 'Unqualified', touch: 'Touch', wip: 'WIP', late: 'Late', cold: 'Cold' };
 
+// ───────────── funnel stages ─────────────
+// Cold = not engaged yet: lives in Sources › Cold pool, never on the Follow up board.
+// The other four are the engaged stages, shown and filtered on Follow up.
+export const STAGES = [
+  { id: 'cold', label: 'Cold', desc: 'Not engaged yet' },
+  { id: 'attention', label: 'Attention', desc: 'Aware of the offer' },
+  { id: 'interest', label: 'Interest', desc: 'Exploring the fit' },
+  { id: 'desire', label: 'Desire', desc: 'Building preference' },
+  { id: 'action', label: 'Action', desc: 'Ready to commit' },
+];
+export const STAGE_IDS = STAGES.map((s) => s.id);
+export const ENGAGED = STAGES.filter((s) => s.id !== 'cold');
+export const stageLabel = (id) => STAGES.find((s) => s.id === id)?.label ?? '';
+
+/** How cold someone has gone: days since their last touch, or since they were added if never touched. */
+export const COLDNESS = [
+  { id: 'fresh', label: 'Fresh', max: 7, range: '0–7d' },
+  { id: 'cooling', label: 'Cooling', max: 30, range: '8–30d' },
+  { id: 'cold', label: 'Cold', max: 90, range: '31–90d' },
+  { id: 'frozen', label: 'Frozen', max: Infinity, range: '90d+' },
+];
+export const addedAt = (p) => p.foundAt || p.createdAt;
+export function coldness(p, now = state.now) {
+  const last = touchesFor(p.id)[0];
+  const from = new Date(last ? last.date : addedAt(p)).getTime();
+  const days = Math.max(0, Math.floor((now - from) / DAY));
+  return { days, band: COLDNESS.find((b) => days <= b.max), touched: !!last };
+}
+
+const parseHistory = (v) => {
+  if (Array.isArray(v)) return v;
+  try { const a = JSON.parse(String(v || '[]')); return Array.isArray(a) ? a.filter((h) => STAGE_IDS.includes(h?.stage) && h.at) : []; } catch { return []; }
+};
+
+/**
+ * Give everyone a funnel stage and keep it in step with cold storage (they are the same thing now).
+ * A stored stage wins, except that someone in the pipeline who has been touched is never Cold.
+ * No stored stage: cold storage → Cold; in the pipeline and touched → Attention; never touched → Cold.
+ */
+export function settleFunnel(people, touches) {
+  const touched = new Set(touches.map((t) => Number(t.person_id)));
+  people.forEach((p) => {
+    p.stageHistory = parseHistory(p.stageHistory);
+    let f = STAGE_IDS.includes(p.funnel) ? p.funnel : '';
+    if (p.cold) f = 'cold';
+    else if (!p.unqualified && (!f || f === 'cold')) f = touched.has(p.id) ? 'attention' : 'cold';
+    else if (!f) f = 'cold';
+    p.funnel = f;
+    if (f === 'cold' && !p.unqualified) p.cold = true;
+  });
+  return people;
+}
+
 export function blankPerson(over = {}) {
   return {
     id: 0, name: '', organization: '', role: '', industry: '', project: '', email: '', phone: '', source: '',
     nextStep: '', followUpAt: new Date(Date.now() + DAY).toISOString(), stage: 'touch', unqualified: false, cold: false,
     activeLead: false, reportsToId: null, strength: 1, createdAt: new Date().toISOString(), foundAt: '',
-    headline: '', notes: '', ...over,
+    funnel: 'attention', stageHistory: [], headline: '', notes: '', ...over,
   };
 }
 
-/** Old local data (v2) → v3 shape. Funnel stages are dropped. */
+/** Old local data (v2) → v3 shape. Funnel stages carry over. */
 function migrateV2() {
   const old = load('kinfolk-pipe-v2', null);
   if (!old) return null;
@@ -67,6 +120,7 @@ function migrateV2() {
     followUpAt: p.followUpAt || new Date(Date.now() + DAY).toISOString(), stage: p.stage === 'wip' ? 'wip' : 'touch',
     unqualified: p.contacted === false && !p.cold, cold: !!p.cold, reportsToId: p.reportsToId ?? null,
     strength: p.relationshipStrength || 1, createdAt: p.createdAt || new Date().toISOString(),
+    funnel: p.funnelStage || '', stageHistory: p.stageHistory || [],
   }));
 }
 
@@ -74,11 +128,11 @@ function demoPeople() {
   const h = (n) => new Date(Date.now() + n * HOUR).toISOString();
   const now = new Date().toISOString();
   return [
-    blankPerson({ id: 1, name: 'Maya Chen', organization: 'Northstar Labs', industry: 'Technology', role: 'VP, Product', project: 'GCR', source: 'Social', nextStep: 'Send the product overview', followUpAt: h(3), activeLead: true, strength: 3 }),
-    blankPerson({ id: 2, name: 'Sofia Alvarez', organization: 'Northstar Labs', industry: 'Technology', role: 'Director, Partnerships', project: 'AC', source: 'Search', nextStep: 'Book a discovery call', followUpAt: h(22), reportsToId: 1, strength: 2 }),
-    blankPerson({ id: 3, name: 'Jon Bell', organization: 'Cedar & Co.', industry: 'Professional Services', role: 'Managing Partner', project: 'GCR', source: 'Events', nextStep: 'SV: Site visit Thursday', followUpAt: h(6), stage: 'wip', activeLead: true, strength: 2 }),
-    blankPerson({ id: 4, name: 'Amara Okafor', organization: 'Cedar & Co.', industry: 'Professional Services', role: 'Operations Director', project: 'PNST', source: 'Manning', nextStep: 'Try calling again', followUpAt: h(-5), stage: 'wip', activeLead: true, reportsToId: 3 }),
-    blankPerson({ id: 5, name: 'Nina Patel', organization: 'Cedar & Co.', industry: 'Professional Services', role: 'Engagement Lead', project: 'EN', source: 'Association', nextStep: 'Research current priorities', followUpAt: h(24), foundAt: now }),
+    blankPerson({ id: 1, name: 'Maya Chen', organization: 'Northstar Labs', industry: 'Technology', role: 'VP, Product', project: 'GCR', source: 'Social', nextStep: 'Send the product overview', followUpAt: h(3), activeLead: true, strength: 3, funnel: 'interest' }),
+    blankPerson({ id: 2, name: 'Sofia Alvarez', organization: 'Northstar Labs', industry: 'Technology', role: 'Director, Partnerships', project: 'AC', source: 'Search', nextStep: 'Book a discovery call', followUpAt: h(22), reportsToId: 1, strength: 2, funnel: 'attention' }),
+    blankPerson({ id: 3, name: 'Jon Bell', organization: 'Cedar & Co.', industry: 'Professional Services', role: 'Managing Partner', project: 'GCR', source: 'Events', nextStep: 'SV: Site visit Thursday', followUpAt: h(6), stage: 'wip', activeLead: true, strength: 2, funnel: 'action' }),
+    blankPerson({ id: 4, name: 'Amara Okafor', organization: 'Cedar & Co.', industry: 'Professional Services', role: 'Operations Director', project: 'PNST', source: 'Manning', nextStep: 'Try calling again', followUpAt: h(-5), stage: 'wip', activeLead: true, reportsToId: 3, funnel: 'desire' }),
+    blankPerson({ id: 5, name: 'Nina Patel', organization: 'Cedar & Co.', industry: 'Professional Services', role: 'Engagement Lead', project: 'EN', source: 'Association', nextStep: 'Research current priorities', followUpAt: h(24), foundAt: now, cold: true, funnel: 'cold' }),
   ];
 }
 
@@ -102,9 +156,10 @@ const hasV3 = load(K.people, null);
 const withUnqualified = (people) => people.map(({ contacted, ...p }) =>
   'unqualified' in p ? p : { ...p, unqualified: contacted === false && !p.cold });
 
+const startTouches = load(K.touches, null) ?? load('kinfolk-touches-v1', []);
 export const state = {
-  people: withUnqualified(hasV3 ?? migrateV2() ?? demoPeople()),
-  touches: load(K.touches, null) ?? load('kinfolk-touches-v1', []),
+  people: settleFunnel(withUnqualified(hasV3 ?? migrateV2() ?? demoPeople()), startTouches),
+  touches: startTouches,
   targets: load(K.targets, null) ?? (hasV3 || load('kinfolk-pipe-v2', null) ? [] : demoTargets()),
   projects: meta?.projects ?? load('kinfolk-meta-v1', {}).projects ?? DEFAULT_PROJECTS,
   groups: meta?.groups ?? load('kinfolk-meta-v1', {}).groups ?? DEFAULT_GROUPS,
@@ -112,11 +167,12 @@ export const state = {
   goal: meta?.goal ?? 10,
   now: Date.now(),
   ui: {
-    route: 'today', followView: 'pipeline', search: '', onlyActive: false, account: '', industry: '',
+    route: 'today', followView: 'pipeline', search: '', onlyActive: false, account: '', industry: '', stage: '',
+    pool: { source: '', sort: 'new' },
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
   },
-  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false },
+  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false, v4: false },
 };
 
 let emit = () => {};
@@ -134,10 +190,11 @@ export function toSheet(p) {
   // The sheet keeps the word "Prospect" for Unqualified, so existing dropdowns, validation and Dashboard formulas still work.
   const status = p.cold ? 'Cold' : p.unqualified ? 'Prospect' : p.stage === 'wip' ? 'WIP' : 'Touch';
   return {
-    id: p.id, name: p.name, status, follow_up_at: status === 'Touch' || status === 'WIP' ? p.followUpAt : '',
+    id: p.id, name: p.name, status, follow_up_at: status === 'Prospect' ? '' : p.followUpAt,
     next_step: p.nextStep, project: p.project, organization: p.organization, role: p.role, industry: p.industry,
     reports_to_id: p.reportsToId ?? '', strength: p.strength, email: p.email, phone: p.phone, source: p.source,
     active_lead: p.activeLead ? 'Y' : '', found_at: p.foundAt || '', created_at: p.createdAt,
+    funnel_stage: p.funnel || '', stage_history: JSON.stringify(p.stageHistory || []),
   };
 }
 
@@ -158,6 +215,7 @@ export function fromSheet(r) {
     reportsToId: num(r.reports_to_id), strength: Math.min(3, Math.max(1, Number(r.strength) || 1)),
     createdAt: created, foundAt: r.found_at ? String(r.found_at) : '',
     headline: String(r.headline ?? ''), notes: String(r.notes ?? ''),
+    funnel: String(r.funnel_stage ?? '').trim().toLowerCase(), stageHistory: r.stage_history ?? '',
   });
 }
 
@@ -176,7 +234,10 @@ export const targetFromSheet = (r) => ({
 // ───────────── derived ─────────────
 export const byId = (id) => state.people.find((p) => p.id === id);
 
-export function matchesFilters(p) {
+export const matchesFilters = (p) => (!state.ui.stage || p.funnel === state.ui.stage) && matchesOtherFilters(p);
+
+/** Every filter except the stage one (the stage strip counts with this). */
+export function matchesOtherFilters(p) {
   const { search, onlyActive, account, industry } = state.ui;
   if (onlyActive && !p.activeLead) return false;
   if (account && p.organization !== account) return false;
@@ -259,14 +320,30 @@ function pushPerson(p, fields) {
   emit([{ op: 'upsertPerson', person: out }]);
 }
 
+/** Cold storage and the Cold stage are one thing: keep `cold` and `funnel` in step, and log stage changes. */
+function withFunnel(p, patch) {
+  const out = { ...patch };
+  if ('funnel' in out && !('cold' in out)) out.cold = out.funnel === 'cold' && !(out.unqualified ?? p.unqualified);
+  if ('cold' in out && !('funnel' in out)) {
+    if (out.cold) out.funnel = 'cold';
+    else if (p.funnel === 'cold' && !out.unqualified) out.funnel = 'attention';
+  }
+  if (out.cold) out.unqualified = false;
+  if (out.funnel && out.funnel !== p.funnel) {
+    out.stageHistory = [...(p.stageHistory || []), { stage: out.funnel, at: new Date().toISOString() }];
+  }
+  return out;
+}
+
 export function patchPerson(id, patch) {
   const p = byId(id);
   if (!p) return null;
   const before = toSheet(p);
-  Object.assign(p, patch);
+  Object.assign(p, withFunnel(p, patch));
   const after = toSheet(p);
   const changed = Object.keys(after).filter((k) => after[k] !== before[k]);
-  if (changed.length) pushPerson(p, changed);
+  // Status and stage always travel together, so a stage worked out on load (see settleFunnel) reaches the sheet.
+  if (changed.length) pushPerson(p, [...new Set([...changed, 'status', 'funnel_stage'])]);
   return p;
 }
 
@@ -294,14 +371,15 @@ export function savePerson(draft, original, { touch }) {
   if (original) {
     p = patchPerson(original.id, d);
   } else {
-    p = blankPerson({ ...d, id: nextId(), createdAt: new Date().toISOString() });
+    const at = new Date().toISOString();
+    p = blankPerson({ ...d, ...withFunnel({ funnel: '' }, { funnel: d.cold ? 'cold' : d.funnel || 'attention' }), id: nextId(), createdAt: at });
     state.people.push(p);
     const s = toSheet(p);
     emit([{ op: 'upsertPerson', person: { ...s, notes: p.notes, industry_check: 'confirmed' } }]);
   }
   if (touch) logTouch(p, d.nextStep, d.project);
   if (touch && isWin(d.nextStep)) return `Win logged for ${p.name}`;
-  if (touch) return `Touch logged for ${p.name}${d.project ? ' · ' + d.project : ''}${p.cold ? ' · moved to cold storage' : ''}`;
+  if (touch) return `Touch logged for ${p.name}${d.project ? ' · ' + d.project : ''}${p.cold ? ' · stays in the Cold pool' : ''}`;
   return original ? `${p.name} saved` : `${p.name} added`;
 }
 
@@ -335,8 +413,8 @@ export function movePerson(id, to) {
 export function toggleCold(id) {
   const p = byId(id);
   if (!p) return '';
-  if (!p.cold) { patchPerson(id, { cold: true, unqualified: false }); return `${p.name} moved to cold storage`; }
-  return `${p.name} restored${rejoin(id, { cold: false })}`;
+  if (!p.cold) { patchPerson(id, { cold: true, unqualified: false }); return `${p.name} moved to the Cold pool`; }
+  return `${p.name} is now Attention${rejoin(id, { cold: false, stage: 'touch' })}`;
 }
 
 export function toggleUnqualified(id) {
@@ -365,6 +443,37 @@ export function backToTouch(id) {
   return p ? `${p.name} moved to Touch · due tomorrow` : '';
 }
 
+/** Set someone's funnel stage. Leaving Cold puts them on the board at Touch; an overdue date moves to tomorrow. */
+export function setStage(id, stage) {
+  const p = byId(id);
+  if (!p || p.funnel === stage) return '';
+  if (p.funnel === 'cold' && stage !== 'cold') return `${p.name} is now ${stageLabel(stage)}${rejoin(id, { funnel: stage, cold: false, unqualified: false, stage: 'touch' })} · on Follow up`;
+  patchPerson(id, { funnel: stage });
+  return stage === 'cold' ? `${p.name} moved to the Cold pool` : `${p.name} is now ${stageLabel(stage)}`;
+}
+
+/** Everyone not engaged yet, for Sources › Cold pool. */
+export function coldPool() {
+  const { source, sort } = state.ui.pool;
+  const t = (p) => new Date(addedAt(p)).getTime();
+  return state.people
+    .filter((p) => p.cold && (!source || p.source === source))
+    .sort((a, b) => (sort === 'old' ? t(a) - t(b) : t(b) - t(a)) || a.name.localeCompare(b.name));
+}
+
+export function coldStats() {
+  const pool = state.people.filter((p) => p.cold);
+  const now = state.now;
+  const end = startOfDay(now) + DAY;
+  const due = (p) => new Date(p.followUpAt).getTime();
+  return {
+    total: pool.length,
+    late: pool.filter((p) => due(p) <= now).length,
+    today: pool.filter((p) => due(p) > now && due(p) < end).length,
+    bySource: (id) => pool.filter((p) => (id ? p.source === id : true)).length,
+  };
+}
+
 export function toggleActive(id) {
   const p = byId(id);
   if (!p) return '';
@@ -377,7 +486,7 @@ function pushTarget(t) {
   if (state.sync.v3) emit([{ op: 'upsertTarget', target: targetToSheet(t) }]);
 }
 
-/** A find: someone with a way to reach them. Goes to Follow up › Touch, first message due tomorrow. */
+/** A find: someone with a way to reach them. Goes to Sources › Cold pool, first message due tomorrow. */
 export function saveFind(f, targetId) {
   const now = new Date();
   const p = blankPerson({
@@ -385,6 +494,7 @@ export function saveFind(f, targetId) {
     organization: f.organization.trim(), industry: f.industry.trim(), project: f.project || '', source: f.source,
     notes: f.why.trim(), nextStep: 'First message', followUpAt: new Date(now.getTime() + DAY).toISOString(),
     stage: 'touch', createdAt: now.toISOString(), foundAt: now.toISOString(),
+    cold: true, funnel: 'cold', stageHistory: [{ stage: 'cold', at: now.toISOString() }],
   });
   state.people.push(p);
   emit([{ op: 'upsertPerson', person: { ...toSheet(p), notes: p.notes, industry_check: 'confirmed' } }]);

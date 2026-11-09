@@ -35,7 +35,8 @@ There are three pages, in a daily loop: **Today → Follow up → Sources**.
    - Saving a find needs a name and a way to reach the person (email, or phone/LinkedIn). It creates a person with:
      - `source` and `foundAt = now`,
      - `nextStep = "First message"`,
-     - stage Touch, due in 24 hours.
+     - stage Touch, due in 24 hours,
+     - funnel stage Cold, so they land in Sources › Cold pool.
 
      The target becomes `found`.
    - Finds are counted toward a daily goal (default 10, editable). No touch is logged for a find; messaging happens in Follow up.
@@ -46,7 +47,7 @@ There are three pages, in a daily loop: **Today → Follow up → Sources**.
 - **Spreadsheet:** everyone, sortable, shown as cards on mobile.
   - Multi-select: Shift-click selects a range from the selected row, Cmd/Ctrl-click adds or removes one row, `Shift`+`↑`/`↓` extends. With 2+ selected, a bulk bar sets Active lead, Unqualified, Cold storage, Back in pipeline, follow-up 24H/2D/1W and project, or removes them (two clicks). Bulk actions only touch rows that are visible under the current filters. Selection clears on page or view change.
 
-Filters: search, Active leads only, account, industry (focus industries come first).
+Filters: search, Active leads only, account, industry (focus industries come first), and the **stage strip**: four tiles (Attention, Interest, Desire, Action) with counts under the other filters; clicking one filters both views. Cards and rows carry a stage tag. Cold people are never on the board.
 
 **Sources** shows the five fixed sources: **Events, Manning, Search, Social, Association**.
 - Each one shows found this week, how many companies are left to research, and how many became active.
@@ -54,6 +55,14 @@ Filters: search, Active leads only, account, industry (focus industries come fir
 - You can paste a company list into a source (one per line: `company, industry, note`).
 - The table lists each company and who was found there.
 - Events and Association are list-based; Manning, Search and Social are open (log as you go).
+- Above them, the **Cold pool** lists everyone at stage Cold, sorted by date added (newest first by default), filterable by source. Each row shows **coldness**: days since the last touch, or since added if never touched (Fresh 0–7, Cooling 8–30, Cold 31–90, Frozen 90+). Actions:
+  - **Touch** opens the record with a touch ready; they stay Cold and their follow-up runs on the same timer as Follow up (due → late).
+  - **→ Attention** moves them onto Follow up at Touch (overdue → due tomorrow).
+  - **Not a fit** marks them Unqualified.
+
+### Funnel stages
+
+`funnel`: `cold | attention | interest | desire | action`, with `stageHistory: [{stage, at}]` appended on every change. **Cold is cold storage**: `cold === (funnel === 'cold')` (except Unqualified people, who keep their stage but are out of both). `patchPerson` keeps the two in step. On load (`settleFunnel`): a stored stage wins, except a touched person in the pipeline is never Cold; with no stored stage, cold storage → Cold, touched → Attention, never touched → Cold. Changing a stage from the person modal or `C` logs history.
 
 ### Person
 
@@ -65,8 +74,9 @@ Filters: search, Active leads only, account, industry (focus industries come fir
 | `nextStep`, `followUpAt` | |
 | `stage` | `touch` or `wip` |
 | `unqualified` | Not vetted or not a fit yet; out of the pipeline. Replaces the old `contacted` flag |
-| `cold` | Cold storage |
-| `activeLead` | Manual tag; it replaces the old AIDA funnel |
+| `cold` | Cold storage = funnel stage Cold (the Cold pool) |
+| `activeLead` | Manual tag |
+| `funnel`, `stageHistory` | Funnel stage and its log (see Funnel stages) |
 | `reportsToId`, `strength` (1–3) | |
 | `createdAt`, `foundAt` | |
 | `headline`, `notes` | Sheet-owned; `notes` is written only on create |
@@ -119,7 +129,7 @@ Shortcuts are ignored while typing, while a modal is open (except `Esc`), or whe
 
 Saved people that still have `contacted: false` load as Unqualified.
 
-On first load, v3 migrates the v2 keys (`kinfolk-pipe-v2`, `kinfolk-touches-v1`, `kinfolk-meta-v1`, `kinfolk-outbox-v1`) and drops the funnel fields. With no data at all, it starts with demo people plus a sample Association list (target ids `demo*`). Those demo targets are discarded on first sync.
+On first load, v3 migrates the v2 keys (`kinfolk-pipe-v2`, `kinfolk-touches-v1`, `kinfolk-meta-v1`, `kinfolk-outbox-v1`), keeping the funnel fields. With no data at all, it starts with demo people plus a sample Association list (target ids `demo*`). Those demo targets are discarded on first sync.
 
 ## Google Sheets sync
 
@@ -143,13 +153,14 @@ Status mapping:
 
 Other sheet fields:
 - `active_lead` is `Y` or blank.
-- `follow_up_at` is blank for Prospect and Cold.
+- `follow_up_at` is blank for Prospect (Cold keeps it: the pool runs on the follow-up timer).
+- `funnel_stage` and `stage_history` (JSON) are written by `Code.gs` v4. `status` and `funnel_stage` are always sent together.
 
 `Code.gs` v3:
 - It writes only the fields on its writable list.
 - It keeps formula cells intact whatever columns they sit in.
 - It adds any missing columns at the end, and creates the `Targets` and `Sources` tabs.
-- It never writes the v2 funnel columns.
+- v4 reads and writes `funnel_stage` and `stage_history`; `version >= 4` sets `state.sync.v4`.
 
 ## Invariants
 
