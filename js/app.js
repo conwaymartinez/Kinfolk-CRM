@@ -189,7 +189,12 @@ function act(action, el) {
     case 'edit': openPerson(num); return;
     case 'close-modal': closeModal(); return;
     case 'only-active': state.ui.onlyActive = !state.ui.onlyActive; break;
-    case 'clear-filters': Object.assign(state.ui, { search: '', onlyActive: false, account: '', industry: '' }); break;
+    case 'clear-filters': Object.assign(state.ui, { search: '', onlyActive: false, account: '', industry: '', stage: '' }); break;
+    case 'pool-source': state.ui.pool.source = el.dataset.value; break;
+    case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
+    case 'pool-warm': toast(S.setStage(num, 'attention')); break;
+    case 'pool-notfit': toast(S.toggleUnqualified(num)); break;
+    case 'stage-filter': state.ui.stage = state.ui.stage === el.dataset.value ? '' : el.dataset.value; break;
     case 'sort': {
       const k = el.dataset.key;
       state.ui.sort = { key: k, dir: state.ui.sort.key === k ? -state.ui.sort.dir : 1 };
@@ -211,6 +216,7 @@ function act(action, el) {
     case 'disconnect': disconnect(); state.ui.modal = null; toast('Disconnected · data stays in this browser'); break;
     case 'pull': pull(); state.ui.modal = null; break;
     // person modal
+    case 'draft-stage': m.draft.funnel = el.dataset.value; m.draft.cold = el.dataset.value === 'cold'; if (m.draft.cold) m.draft.unqualified = false; break;
     case 'draft-project': m.draft.project = m.draft.project === el.dataset.value ? '' : el.dataset.value; break;
     case 'win-prefix': {
       const pre = el.dataset.value + ': ';
@@ -244,6 +250,7 @@ function onBind(el, final) {
   if (b === 'search') { state.ui.search = val; return render(); }
   if (b === 'account' || b === 'industry') { state.ui[b] = val; return render(); }
   if (b === 'bulkProject') { if (val !== '__') toast(S.bulkSet(picked(), 'project', val)); return render(); }
+  if (b === 'poolSort') { state.ui.pool.sort = val; return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
   if (scope === 'today') { state.ui.today[field] = val; return render(); }
   if (scope === 'find') { state.ui.find[field] = val; if (state.ui.find.error) { state.ui.find.error = ''; render(); } return; }
@@ -261,6 +268,8 @@ function onBind(el, final) {
     // Unqualified and Cold storage are two different ways out of the pipeline: pick one.
     if (field === 'cold' && val) d.unqualified = false;
     if (field === 'unqualified' && val) d.cold = false;
+    // Leaving Unqualified with no engaged stage yet starts them in the Cold pool.
+    if (field === 'unqualified' && !val && d.funnel === 'cold') d.cold = true;
     if (field === 'nextStep') {
       const changed = val.trim() !== (m.origNext || '').trim();
       if ((changed && !m.touch) || m.error) { m.touch = m.touch || changed; m.error = ''; render(); }
@@ -280,7 +289,7 @@ async function onSubmit(form) {
     if (!f.name.trim()) { f.error = 'Add the name of the person who decides.'; focusAfter = '#find-name'; return render(); }
     if (!f.email.trim() && !f.phone.trim()) { f.error = 'Add an email, phone or LinkedIn so you can reach them.'; return render(); }
     const p = S.saveFind({ ...f, organization: t.company, industry: t.industry, project: t.project, source: t.source }, t.id);
-    toast(`${p.name} saved · first message due tomorrow`);
+    toast(`${p.name} saved to the Cold pool · first message due tomorrow`);
     focusAfter = '#research';
     return render();
   }
@@ -290,7 +299,7 @@ async function onSubmit(form) {
     if (!d.email.trim() && !d.phone.trim()) { d.error = 'Add an email, phone or LinkedIn so you can reach them.'; return render(); }
     const p = S.saveFind(d);
     state.ui.modal = null;
-    toast(`${p.name} saved from ${d.source} · first message due tomorrow`);
+    toast(`${p.name} saved from ${d.source} to the Cold pool · first message due tomorrow`);
     return render();
   }
   if (kind === 'person') {

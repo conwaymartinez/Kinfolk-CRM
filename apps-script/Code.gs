@@ -1,5 +1,5 @@
 /**
- * Kinfolk ⇄ Google Sheets bridge — v3 (Today / Follow up / Sources).
+ * Kinfolk ⇄ Google Sheets bridge — v4 (Today / Follow up / Sources + funnel stages).
  *
  * Paste this whole file into Extensions ▸ Apps Script of the Kinfolk Database sheet,
  * run `setup` once, then Deploy ▸ New deployment ▸ Web app
@@ -10,10 +10,14 @@
  *  - People gain `active_lead`, `found_at`, `phone`; `source`, `email`, `phone` are now writable.
  *  - New tabs, created automatically: `Targets` (company lists to research) and `Sources` (where to look).
  *  - Writes keep formula cells intact wherever they sit, and missing columns are added at the end.
- *  - The funnel columns from v2 (`funnel_stage`, `stage_history`) are left alone and no longer written.
+ *
+ * What changed in v4:
+ *  - The funnel columns (`funnel_stage`, `stage_history`) are read and written again.
+ *    Cold = not engaged yet (status Cold); Attention / Interest / Desire / Action are on Follow up.
+ *  - `follow_up_at` is kept for Cold people too: the Cold pool runs on the same follow-up timer.
  */
 
-const VERSION = 3;
+const VERSION = 4;
 const TZ = 'Asia/Manila';
 const TOKEN_PROP = 'KINFOLK_TOKEN';
 
@@ -27,10 +31,11 @@ const SOURCES = 'Sources';
 
 const PEOPLE_FIELDS = ['id', 'name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role',
   'industry', 'industry_check', 'reports_to_id', 'strength', 'created_at', 'updated_at', 'headline', 'geography',
-  'email', 'phone', 'source', 'active_lead', 'found_at', 'how_i_know', 'notes', 'legacy_id'];
+  'email', 'phone', 'source', 'active_lead', 'found_at', 'how_i_know', 'notes', 'legacy_id', 'funnel_stage', 'stage_history'];
 // Fields Kinfolk may change. Everything else (headline, notes, geography…) is sheet-owned.
 const WRITABLE = ['name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role', 'industry',
-  'industry_check', 'reports_to_id', 'strength', 'created_at', 'email', 'phone', 'source', 'active_lead', 'found_at'];
+  'industry_check', 'reports_to_id', 'strength', 'created_at', 'email', 'phone', 'source', 'active_lead', 'found_at',
+  'funnel_stage', 'stage_history'];
 // Only written when Kinfolk creates the person.
 const ON_CREATE = ['id', 'headline', 'notes'];
 const TOUCH_FIELDS = ['touch_id', 'date', 'person_id', 'person', 'next_step', 'project'];

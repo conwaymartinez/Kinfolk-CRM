@@ -1,7 +1,7 @@
 // Google Sheets sync through the Apps Script web app (apps-script/Code.gs).
 // Every change is an op in an outbox; the outbox flushes in batches and survives reloads/offline.
 import {
-  state, setEmitter, load, save, KEYS, fromSheet, targetFromSheet, targetToSheet, SOURCE_IDS,
+  state, setEmitter, load, save, KEYS, fromSheet, settleFunnel, targetFromSheet, targetToSheet, SOURCE_IDS,
 } from './store.js';
 
 const OUTBOX = 'kinfolk-v3-outbox';
@@ -87,12 +87,13 @@ function apply(data) {
     touch_id: Number(t.touch_id), date: String(t.date || ''), person_id: Number(t.person_id),
     person: String(t.person ?? ''), next_step: String(t.next_step ?? ''), project: String(t.project ?? ''),
   })).filter((t) => t.touch_id);
-  state.people = (data.people || []).map((r) => fromSheet(r)).filter((p) => p.id && p.name);
+  state.people = settleFunnel((data.people || []).map((r) => fromSheet(r)).filter((p) => p.id && p.name), touches);
   state.touches = touches;
   if (data.projects?.length) state.projects = data.projects;
   if (data.groups?.length) state.groups = data.groups;
 
   state.sync.v3 = Number(data.version) >= 3;
+  state.sync.v4 = Number(data.version) >= 4;
   if (state.sync.v3) {
     const remote = (data.targets || []).map(targetFromSheet).filter((t) => t.id && t.company);
     const local = state.targets.filter((t) => !t.id.startsWith('demo'));

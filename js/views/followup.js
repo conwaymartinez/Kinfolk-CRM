@@ -2,6 +2,7 @@
 import { html, icon, rel, plural } from '../ui.js';
 import {
   state, PRESETS, columns, statusOf, STATUS_LABEL, matchesFilters, isWin, isNew, accounts, industries, lateCount, touchStats,
+  ENGAGED, STAGE_IDS, stageLabel, coldStats, matchesOtherFilters,
 } from '../store.js';
 
 const COLS = [
@@ -11,12 +12,15 @@ const COLS = [
 ];
 
 export const SHEET_COLS = [
-  { key: 'name', label: 'Name' }, { key: 'status', label: 'Status' }, { key: 'activeLead', label: 'Active lead' },
+  { key: 'name', label: 'Name' }, { key: 'status', label: 'Status' }, { key: 'funnel', label: 'Stage' }, { key: 'activeLead', label: 'Active lead' },
   { key: 'industry', label: 'Industry' }, { key: 'project', label: 'Project' }, { key: 'source', label: 'Source' },
   { key: 'nextStep', label: 'Next step' }, { key: 'followUpAt', label: 'Follow-up' },
 ];
 
+export const stageTag = (p) => (p.funnel ? html`<span class="tag stage s-${p.funnel}">${stageLabel(p.funnel)}</span>` : '');
+
 const tags = (p) => html`
+  ${stageTag(p)}
   ${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}
   ${isNew(p) ? html`<span class="tag new">New</span>` : ''}
   ${p.activeLead ? html`<span class="tag active">Active lead</span>` : ''}`;
@@ -39,17 +43,36 @@ function toolbar() {
         ${inds.focus.length ? html`<optgroup label="Focus">${inds.focus.map((i) => html`<option ${i === industry ? 'selected' : ''}>${i}</option>`)}</optgroup>` : ''}
         <optgroup label="${inds.focus.length ? 'Other' : 'Industries'}">${inds.other.map((i) => html`<option ${i === industry ? 'selected' : ''}>${i}</option>`)}</optgroup>
       </select>
-      ${account || industry || onlyActive || search ? html`<button type="button" class="link" data-action="clear-filters">Clear</button>` : ''}
+      ${account || industry || onlyActive || search || state.ui.stage ? html`<button type="button" class="link" data-action="clear-filters">Clear</button>` : ''}
       <span class="grow"></span>
       <button class="btn primary" type="button" data-action="add-person">+ Add person</button>
     </div>`;
+}
+
+/** The four engaged stages, with counts under the other filters. Cold people live in Sources › Cold pool. */
+function stageStrip() {
+  const now = state.now;
+  const sel = state.ui.stage;
+  const onBoard = state.people.filter((p) => ['touch', 'wip', 'late'].includes(statusOf(p, now)));
+  const count = (id) => onBoard.filter((p) => p.funnel === id && matchesOtherFilters(p)).length;
+  const cold = coldStats().total;
+  return html`
+    <section class="stage-strip" aria-label="Filter by stage">
+      <div class="stage-tiles" role="group" aria-label="Stage">
+        ${ENGAGED.map((s) => html`<button type="button" class="stage-tile s-${s.id} ${sel === s.id ? 'on' : ''} ${sel && sel !== s.id ? 'dim' : ''}"
+          data-action="stage-filter" data-value="${s.id}" aria-pressed="${sel === s.id}">
+          <span class="row between"><strong>${s.label}</strong><span class="n">${count(s.id)}</span></span>
+          <span class="small">${s.desc}</span></button>`)}
+      </div>
+      <p class="muted small">${cold ? html`${cold} cold ${cold === 1 ? 'person is' : 'people are'} off the board in <a href="#/sources">Sources › Cold pool</a>. Their first touch can move them here.` : 'Cold people stay in Sources › Cold pool until you move them to Attention.'}</p>
+    </section>`;
 }
 
 function pipeline() {
   const cols = columns();
   const now = state.now;
   const sel = state.ui.selectedId;
-  const filtered = state.ui.search || state.ui.onlyActive || state.ui.account || state.ui.industry;
+  const filtered = state.ui.search || state.ui.onlyActive || state.ui.account || state.ui.industry || state.ui.stage;
   return html`
     <div class="board" aria-label="Follow-up pipeline">
       ${COLS.map((c) => html`
@@ -77,6 +100,7 @@ function sortValue(p, key, now) {
     return s === 'cold' || s === 'unqualified' ? Infinity : new Date(p.followUpAt).getTime();
   }
   if (key === 'activeLead') return p.activeLead ? 0 : 1;
+  if (key === 'funnel') return STAGE_IDS.indexOf(p.funnel);
   return String(p[key] || '').toLowerCase() || '￿';
 }
 
@@ -91,7 +115,7 @@ export function sortedRows() {
 }
 
 function timeCell(p, s, now) {
-  if (s === 'cold') return html`<span class="muted small">Cold storage</span>`;
+  if (s === 'cold') return html`<span class="timer ${new Date(p.followUpAt).getTime() <= now ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span> <span class="muted small">· Cold pool</span>`;
   if (s === 'unqualified') return html`<span class="muted small">Not scheduled</span>`;
   return html`<span class="timer ${s === 'late' ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>`;
 }
@@ -127,7 +151,7 @@ function sheet() {
   const multi = state.ui.multi.filter((id) => visible.has(id));
   const isSel = (id) => (multi.length > 1 ? multi.includes(id) : state.ui.selectedId === id);
   const { key, dir } = state.ui.sort;
-  const filtered = state.ui.search || state.ui.onlyActive || state.ui.account || state.ui.industry;
+  const filtered = state.ui.search || state.ui.onlyActive || state.ui.account || state.ui.industry || state.ui.stage;
   return html`
     ${multi.length > 1 ? bulkBar(multi) : html`<p class="muted small sheet-hint">Shift-click to select a range, ${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'}-click to add one, then edit them together.</p>`}
     <div class="sheet-wrap" aria-label="People spreadsheet">
@@ -140,6 +164,7 @@ function sheet() {
             return html`<tr class="${isSel(p.id) ? 'selected' : ''}" data-row="${p.id}" aria-selected="${isSel(p.id)}">
               <td><span class="name">${p.name}</span><span class="muted small block">${p.organization}</span></td>
               <td><span class="status ${s}">${STATUS_LABEL[s]}</span></td>
+              <td>${stageTag(p) || html`<span class="muted">—</span>`}</td>
               <td>${p.activeLead ? html`<span class="tag active">Active lead</span>` : html`<span class="muted">—</span>`}</td>
               <td class="small">${p.industry}</td>
               <td class="small strong">${p.project}</td>
@@ -182,5 +207,6 @@ export function renderFollowUp() {
       </div>
     </header>
     ${toolbar()}
+    ${stageStrip()}
     ${view === 'sheet' ? sheet() : pipeline()}`;
 }

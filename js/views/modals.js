@@ -1,6 +1,6 @@
 // Dialogs: person record, log a find, daily goal, sync settings, keyboard shortcuts.
 import { html, icon, toLocalInput } from '../ui.js';
-import { state, PRESETS, SOURCES, accounts, industries, touchesFor, isWin, byId } from '../store.js';
+import { state, PRESETS, SOURCES, STAGES, stageLabel, accounts, industries, touchesFor, isWin, byId } from '../store.js';
 import { syncLabel } from '../sync.js';
 
 const shell = (title, sub, body, label = title) => html`
@@ -20,7 +20,7 @@ function personModal(m) {
   const last = orig ? touchesFor(orig.id) : [];
   const inds = industries();
   const preset = PRESETS.find((p) => p.id === m.preset);
-  const saveLabel = m.touch && d.cold ? 'Log touch & go cold' : m.touch ? (orig ? 'Save & log touch' : 'Add & log touch') : orig ? 'Save changes' : 'Add person';
+  const saveLabel = m.touch && d.cold ? 'Log touch · stay Cold' : m.touch ? (orig ? 'Save & log touch' : 'Add & log touch') : orig ? 'Save changes' : 'Add person';
   const sub = orig ? (m.touch ? 'Log a touch' : 'Update follow-up') : 'New person';
   return shell(orig ? orig.name : 'Add to the pipe', sub, html`
     <form class="stack" data-form="person" autocomplete="off">
@@ -29,8 +29,22 @@ function personModal(m) {
           <span><strong>Active lead</strong><span class="muted small block">Engaged: a real opportunity</span></span></label>
         <label class="check"><input type="checkbox" data-bind="draft.unqualified" ${d.unqualified ? 'checked' : ''}>
           <span><strong>Unqualified</strong><span class="muted small block">Not vetted or not a fit yet</span></span></label>
-        <label class="check"><input type="checkbox" data-bind="draft.cold" ${d.cold ? 'checked' : ''}>
-          <span><strong>Cold storage</strong><span class="muted small block">${m.touch ? 'Log this touch, then park them' : 'Parked, record kept'}</span></span></label>
+      </div>
+      <div class="field">Stage
+        <div class="stage-picker" role="group" aria-label="Stage">
+          ${STAGES.map((s, i) => {
+            const at = STAGES.findIndex((x) => x.id === d.funnel);
+            return html`<button type="button" class="stage-btn s-${s.id} ${i <= at ? 'reached' : ''} ${d.funnel === s.id ? 'on' : ''}"
+              data-action="draft-stage" data-value="${s.id}" aria-pressed="${d.funnel === s.id}" ${d.unqualified ? 'disabled' : ''}>${s.label}</button>`;
+          })}
+        </div>
+        <span class="muted small">${d.unqualified ? 'No stage while Unqualified'
+          : d.funnel === 'cold' ? 'Not engaged yet · lives in Sources › Cold pool, off the Follow up board'
+          : STAGES.find((s) => s.id === d.funnel)?.desc ?? ''}</span>
+        ${orig?.stageHistory?.length ? html`<ol class="stage-history" aria-label="Stage history">
+          ${[...orig.stageHistory].reverse().slice(0, 6).map((h) => html`<li><span class="dot s-${h.stage}" aria-hidden="true"></span>${stageLabel(h.stage)}
+            <span class="muted">${new Date(h.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span></li>`)}
+        </ol>` : ''}
       </div>
       ${last.length ? html`<p class="muted small">Last touch ${new Date(last[0].date).toLocaleDateString()}${last[0].project ? ' · ' + last[0].project : ''} · ${last.length} total</p>` : ''}
       <div class="touch-box ${m.touch ? 'active' : ''} ${m.error ? 'has-error' : ''}">
@@ -51,10 +65,10 @@ function personModal(m) {
 
       <div class="field">Next follow-up
         <div class="row wrap">
-          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.cold || d.unqualified ? 'disabled' : ''} aria-label="Follow-up date and time">
-          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.cold || d.unqualified ? 'disabled' : ''}>${p.label}</button>`)}
+          <input type="datetime-local" data-bind="draft.followUpAt" value="${toLocalInput(d.followUpAt)}" ${d.unqualified ? 'disabled' : ''} aria-label="Follow-up date and time">
+          ${PRESETS.map((p) => html`<button type="button" class="chip ${m.preset === p.id ? 'on' : ''}" data-action="preset" data-value="${p.id}" title="${p.title}" ${d.unqualified ? 'disabled' : ''}>${p.label}</button>`)}
         </div>
-        <span class="muted small">${d.cold ? 'None while in cold storage' : d.unqualified ? 'None while Unqualified' : preset ? preset.title : ''}</span>
+        <span class="muted small">${d.unqualified ? 'None while Unqualified' : preset ? preset.title : ''}</span>
       </div>
 
       <div class="grid2">
@@ -115,7 +129,7 @@ function findModal(m) {
         ${state.projects.map((p) => html`<button type="button" class="chip ${d.project === p ? 'on' : ''}" data-action="find-project" data-value="${p}">${p}</button>`)}
       </div>
       ${d.error ? html`<p class="error" role="alert">${d.error}</p>` : ''}
-      <p class="muted small">Counts toward today's goal. They land in Follow up › Touch with “First message” due tomorrow.</p>
+      <p class="muted small">Counts toward today's goal. They land in Sources › Cold pool with “First message” due tomorrow.</p>
       <div class="modal-foot"><span class="grow"></span>
         <button type="button" class="btn" data-action="close-modal">Cancel</button>
         <button type="submit" class="btn primary">Save find</button></div>
@@ -153,7 +167,7 @@ function syncModal(m) {
 
 const KEYS = [
   ['Pick someone', [['↑ ↓', 'J K', 'Up and down a column'], ['← →', 'H L', 'Across columns'], ['Esc', '', 'Clear the selection'], ['F', '/', 'Search']]],
-  ['Act on them', [['T', '', 'Log a touch'], ['A', '', 'Active lead on / off'], ['U', '', 'Unqualified on / off'], ['C', '', 'Cold storage on / off'], ['R', '', 'Back to Touch, due tomorrow'],
+  ['Act on them', [['T', '', 'Log a touch'], ['A', '', 'Active lead on / off'], ['U', '', 'Unqualified on / off'], ['C', '', 'To the Cold pool / back to Attention'], ['R', '', 'Back to Touch, due tomorrow'],
     ['1 2 3', '', 'Follow up in 24H / 2 days / 1 week'], ['E', 'Enter', 'Open the full record']]],
   ['Prospecting (Today)', [['Enter', '', 'Save prospect'], ['S', '', "Can't find anyone yet"], ['X', '', 'Not a fit'], ['L', '', 'Log a find']]],
   ['Anywhere', [['G', 'then T F S', 'Go to Today / Follow up / Sources'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
