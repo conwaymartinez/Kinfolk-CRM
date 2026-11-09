@@ -24,6 +24,8 @@ v5 replaces Status, Stage, Active lead and Unqualified with **one Stage**:
 
 Until step 2 is done, Kinfolk works out stages from the old columns on each sync and Sources shows a notice.
 
+4. Kinfolk menu ▸ **Merge duplicate people…** lists people entered twice (same name, ignoring case, spaces and doubled letters, e.g. "Mark LLado" / "Mark Llado") and, if you press OK, merges each group into the most recently touched row: blank details are filled in, notes joined, touches moved over, and the extra rows deleted.
+
 ## Upgrading to v4 (funnel stages and the Cold pool)
 
 Same steps as below: paste the new `apps-script/Code.gs`, then Deploy ▸ Manage deployments ▸ edit ▸ Version: **New version**. v4 reads and writes the `funnel_stage` and `stage_history` columns again, so stages set in the v2 build come back. Until you redeploy, Cold still syncs (it is the Cold status) but Attention / Interest / Desire / Action reset to Attention on each pull.

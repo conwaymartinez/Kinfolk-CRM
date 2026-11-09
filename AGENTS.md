@@ -149,6 +149,7 @@ Sheet columns:
 - It writes only the fields on its writable list.
 - It keeps formula cells intact whatever columns they sit in.
 - It adds any missing columns at the end, and creates the `Targets` and `Sources` tabs.
+- Kinfolk menu ▸ **Merge duplicate people…** (`findDuplicates_` / `mergeDuplicates_`) groups rows whose names match once case, spaces and doubled letters are ignored, plus a nameless row whose next step is such a name. It shows the groups and asks first; then the most recently touched row is kept, its blank cells are filled from the others (notes are joined), their touches move to it, and the other rows are deleted.
 - v5 migrates every People row to one stage the first time it runs (copying People to "People before v5" first), tracked by the `KINFOLK_STAGES_V5` script property. `version >= 5` sets `state.sync.v5`; an older sheet is mapped with `legacyStage` on each pull and Sources shows a notice.
 
 ## Invariants

@@ -61,6 +61,7 @@ function onOpen() {
     .addItem('Rename group…', 'renameGroupPrompt')
     .addItem('Refresh formulas', 'refreshFormulas')
     .addItem('Migrate to stages (v5)', 'migrateStagesMenu')
+    .addItem('Merge duplicate people…', 'mergeDuplicatesMenu')
     .addSeparator()
     .addItem('Show sync token', 'showToken')
     .addItem('Setup / reset token', 'setup')
@@ -501,4 +502,109 @@ function migrateStagesMenu() {
   }
   ui.alert('Migrated to stages', STAGE_IDS.map(function (s) { return s + ': ' + (counts[s] || 0); }).join('\n') +
     '\n\nThe original People tab is saved as "People before v5".', ui.ButtonSet.OK);
+}
+
+// ───────────────────────────── duplicates ─────────────────────────────
+
+/** "Mark LLado", "mark llado" and "Mark Lllado" all become "marklado". */
+function nameKey_(v) {
+  return String(v || '').toLowerCase().replace(/[^a-z]/g, '').replace(/(.)\1+/g, '$1');
+}
+
+/**
+ * Groups People rows that are the same person: the same name once case, spaces and doubled letters are ignored.
+ * A row with no name whose next step is someone's name (a name typed into the wrong cell) joins that group.
+ * The kept row is the one touched most recently (then the most advanced stage, then the newest).
+ */
+function findDuplicates_() {
+  const t = table_(PEOPLE, 'id');
+  const n = t.sh.getLastRow() - 1;
+  if (n < 1) return { t: t, groups: [] };
+  const rows = t.sh.getRange(2, 1, n, t.width).getValues();
+  const at = function (r, f) { return t.col[f] ? r[t.col[f] - 1] : ''; };
+  const lastTouch = {};
+  readTable_(TOUCHES, ['person_id', 'date']).forEach(function (x) {
+    const k = String(x.person_id), d = new Date(x.date).getTime() || 0;
+    if (!lastTouch[k] || d > lastTouch[k]) lastTouch[k] = d;
+  });
+  const people = rows.map(function (r, i) {
+    return { row: i + 2, id: String(at(r, 'id')), name: String(at(r, 'name')).trim(), next: String(at(r, 'next_step')).trim(),
+      stage: String(at(r, 'funnel_stage')).trim().toLowerCase(), created: new Date(at(r, 'created_at')).getTime() || 0, values: r };
+  }).filter(function (p) { return p.id !== ''; });
+  const byKey = {};
+  people.forEach(function (p) { if (p.name) (byKey[nameKey_(p.name)] = byKey[nameKey_(p.name)] || []).push(p); });
+  people.forEach(function (p) {
+    const k = nameKey_(p.next);
+    if (!p.name && k.length >= 4 && byKey[k]) byKey[k].push(p);
+  });
+  const rank = function (p) { return STAGE_IDS.indexOf(p.stage) >= 0 && p.stage !== 'cold' ? STAGE_IDS.indexOf(p.stage) : -1; };
+  const groups = Object.keys(byKey).filter(function (k) { return byKey[k].length > 1; }).map(function (k) {
+    const g = byKey[k].slice().sort(function (a, b) {
+      return (lastTouch[b.id] || 0) - (lastTouch[a.id] || 0) || rank(b) - rank(a) || b.created - a.created;
+    });
+    return { keep: g[0], drop: g.slice(1) };
+  });
+  return { t: t, groups: groups };
+}
+
+/**
+ * Merges each group into its kept row: blank cells on the kept row are filled from the others (never formula
+ * cells, never the name), notes are joined, touches move to the kept person, and the other rows are deleted.
+ */
+function mergeDuplicates_(found) {
+  const t = found.t;
+  const formulas = t.sh.getRange(2, 1, 1, t.width).getFormulas()[0];
+  const tt = table_(TOUCHES, 'touch_id');
+  const tn = tt.sh.getLastRow() - 1;
+  const tp = tn > 0 && tt.col.person_id ? tt.sh.getRange(2, tt.col.person_id, tn, 1).getValues() : [];
+  const tname = tn > 0 && tt.col.person ? tt.sh.getRange(2, tt.col.person, tn, 1).getValues() : [];
+  const remove = [];
+  found.groups.forEach(function (g) {
+    const keep = g.keep.values.slice();
+    g.drop.forEach(function (d) {
+      Object.keys(t.col).forEach(function (f) {
+        const i = t.col[f] - 1;
+        if (formulas[i] || f === 'name' || f === 'id' || f === 'stage_history') return;
+        if (f === 'notes' && d.values[i] !== '' && String(keep[i]).indexOf(String(d.values[i])) < 0) {
+          keep[i] = [keep[i], d.values[i]].filter(String).join(' · ');
+        } else if (keep[i] === '' && d.values[i] !== '') keep[i] = d.values[i];
+      });
+      remove.push(d.row);
+    });
+    const range = t.sh.getRange(g.keep.row, 1, 1, t.width);
+    const f = range.getFormulas()[0];
+    range.setValues([keep.map(function (v, i) { return f[i] || v; })]);
+    const ids = g.drop.map(function (d) { return d.id; });
+    tp.forEach(function (r, i) {
+      if (ids.indexOf(String(r[0])) >= 0) { r[0] = Number(g.keep.id) || g.keep.id; if (tname[i]) tname[i][0] = g.keep.name; }
+      else if (String(r[0]) === g.keep.id && tname[i]) tname[i][0] = g.keep.name;
+    });
+  });
+  if (tp.length) tt.sh.getRange(2, tt.col.person_id, tn, 1).setValues(tp);
+  if (tname.length) tt.sh.getRange(2, tt.col.person, tn, 1).setValues(tname);
+  remove.sort(function (a, b) { return b - a; }).forEach(function (r) { t.sh.deleteRow(r); });
+  refreshFormulas();
+  return remove.length;
+}
+
+function mergeDuplicatesMenu() {
+  ensureSheets_();
+  const ui = SpreadsheetApp.getUi();
+  const found = findDuplicates_();
+  if (!found.groups.length) { ui.alert('No duplicates', 'Every person in People has a different name.', ui.ButtonSet.OK); return; }
+  const label = function (p) { return (p.name || '(no name, next step "' + p.next + '")') + ' · row ' + p.row; };
+  const list = found.groups.map(function (g) {
+    return 'Keep ' + label(g.keep) + '\n  merge in: ' + g.drop.map(label).join('; ');
+  }).join('\n\n');
+  const ok = ui.alert('Merge duplicate people?', list + '\n\nTouches move to the kept person and the other rows are deleted. ' +
+    'Undo with Edit ▸ Undo or File ▸ Version history.', ui.ButtonSet.OK_CANCEL);
+  if (ok !== ui.Button.OK) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const n = mergeDuplicates_(findDuplicates_());
+    ui.alert('Merged', n + ' duplicate row' + (n === 1 ? '' : 's') + ' removed. Open Kinfolk (or press Pull) to see the result.', ui.ButtonSet.OK);
+  } finally {
+    lock.releaseLock();
+  }
 }
