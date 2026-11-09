@@ -42,7 +42,7 @@ There are three pages, in a daily loop: **Today → Follow up → Leads**. Each 
    - "Log a find" does the same for open sources that have no list.
 
 **Follow up** has two views:
-- **Board:** one column per engaged stage (Marketing, Discovery, Proposal, Negotiation), soonest follow-up first, late ones in red. Each column head shows the stage's follow-up rhythm and count (the stage's meaning is its tooltip). Cards are compact: name + follow-up timer, then the next step (one line) and a Win tag; organization, project and detail live in the record. Clicking the name opens the record; clicking the card selects it (keys). Dragging a card to another column sets its stage. A line above says how many people wait in Leads and how many deals were won and lost in the last 30 days. Won, Lost and Unqualified people never appear here.
+- **Board:** one column per engaged stage (Marketing, Discovery, Proposal, Negotiation), soonest follow-up first, late ones in red. Each column head shows the stage's follow-up rhythm and count (the stage's meaning is its tooltip). Cards are compact: name + follow-up timer, then the next step (one line) and a Win tag; organization, project and detail live in the record. Clicking the name opens the record; clicking the card selects it (keys). Dragging a card to another column sets its stage. The board fits the window: each column scrolls on its own (`.col-body[data-scroll]`), its scroll position survives re-renders, and the selected card is kept in view inside its column. A line above says how many people wait in Leads and how many deals were won and lost in the last 30 days. Won, Lost and Unqualified people never appear here.
 - **Spreadsheet:** the engaged people, sortable, one line per row (Name, Stage, Project, Next step, Follow-up; the name opens the record), shown as cards on mobile. Typing a search widens it to everyone (Leads, Won, Lost and Unqualified too), so nobody is out of reach. Above it, the **stage strip**: one row of pills, the four engaged stages with counts under the other filters (click one to filter), then **Won · Lost** for the closed records.
   - Multi-select: Shift-click selects a range from the selected row, Cmd/Ctrl-click adds or removes one row, `Shift`+`↑`/`↓` extends. With 2+ selected, a bulk bar sets the stage, follow-up 24H/2D/1W, project and source, or removes them (two clicks). Bulk actions only touch rows that are visible under the current filters. Selection clears on page or view change.
 
@@ -178,4 +178,8 @@ Sheet columns:
 - A touch is always date + next step + project.
 - Kinfolk never writes sheet-owned or formula columns.
 - Existing local data must keep loading. New fields need safe defaults in `blankPerson`.
-- `Esc` closes modals. Tap targets stay at least 44px on touch screens. Below 760px the left rail becomes a bottom bar.
+- `Esc` closes modals. Tap targets stay at least 44px on touch screens. Below 760px the left sidebar becomes a bottom bar, and the Leads lists turn into cards.
+
+## Look
+
+Figma-inspired (Nov 2026): Inter, a white sidebar (pages, pipeline counts per stage, won/lost in 30 days, sync, shortcuts), white top bar per page, 1px `--line` borders, blue `--accent` primary buttons and `--select` blue outline for selection. Each stage has its own colour (`--s-bg`, `--s-ink`, `--s-dot` on `.s-<stage>`): Marketing green, Discovery purple, Proposal orange, Negotiation blue; Late is red. Stage tags carry a dot.
