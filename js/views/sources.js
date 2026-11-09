@@ -1,8 +1,13 @@
 // Leads: everyone not engaged yet (new finds and anyone gone cold), then the five hunting grounds and their lists.
 import { html, plural, rel, icon } from '../ui.js';
-import { state, SOURCES, sourceStats, sourceWhere, prospects, prospectStats, coldness, addedAt, COLDNESS, isEngaged, stageLabel, matchesLead, matchesTarget } from '../store.js';
+import { state, SOURCES, sourceStats, sourceWhere, prospects, prospectStats, coldness, addedAt, COLDNESS, isEngaged, stageLabel, matchesLead, matchesTarget, unqualifiedLeads } from '../store.js';
 
 const STATE_LABEL = { to_research: 'To research', found: 'Found', not_fit: 'Not a fit' };
+const DRAG_HINT = 'Drag onto a source to move them there';
+
+// The Source cell: a small menu, so moving someone works without dragging too (touch screens, keyboard).
+const sourceSelect = (p) => html`<select id="src-${p.id}" class="pill-select" data-bind="personSource" data-id="${p.id}" aria-label="Source for ${p.name}">
+  <option value="" ${p.source ? '' : 'selected'}>—</option>${SOURCES.map((s) => html`<option ${p.source === s.id ? 'selected' : ''}>${s.id}</option>`)}</select>`;
 
 function targetRow(t) {
   const person = t.personId ? state.people.find((p) => p.id === t.personId) : null;
@@ -44,7 +49,7 @@ function prospectsSection() {
   const { source, sort } = state.ui.pool;
   const rows = prospects();
   const st = prospectStats();
-  const chip = (id, label) => html`<button type="button" class="chip ${source === id ? 'on' : ''}" data-action="pool-source" data-value="${id}" aria-pressed="${source === id}">${label} ${st.bySource(id)}</button>`;
+  const chip = (id, label) => html`<button type="button" class="chip ${source === id ? 'on' : ''}" data-action="pool-source" data-value="${id}" aria-pressed="${source === id}" ${id ? html`data-drop-source="${id}"` : ''}>${label} ${st.bySource(id)}</button>`;
   const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return html`
     <section class="card flush pool" aria-label="Leads to warm up">
@@ -52,7 +57,7 @@ function prospectsSection() {
         <div class="stack-xs grow">
           <h2>To warm up</h2>
           <span class="muted small">${plural(st.total, 'person', 'people')} not engaged yet${st.late ? html` · <span class="late-text">${st.late} late</span>` : ''}${st.today ? ` · ${st.today} due today` : ''}.
-            Touch to reach out (they stay here), → Marketing once they respond, Unqualified if they're not a fit.</span>
+            Touch to reach out (they stay here), → Marketing once they respond, Unqualified if they're not a fit. Drag a name onto a source to file it there.</span>
         </div>
       </div>
       <div class="pool-tools">
@@ -72,13 +77,13 @@ function prospectsSection() {
           <tbody>${rows.map((p) => {
             const c = coldness(p, now);
             const late = new Date(p.followUpAt).getTime() <= now;
-            return html`<tr>
+            return html`<tr draggable="true" data-drag-person="${p.id}" title="${DRAG_HINT}">
               <td><button type="button" class="link name" data-action="edit" data-id="${p.id}">${p.name}</button>
                 <span class="muted small block">${[p.organization, p.project].filter(Boolean).join(' · ') || 'Unassigned'}</span></td>
               <td class="small">${day(addedAt(p))}</td>
               <td><span class="coldness c-${c.band.id}" title="${c.touched ? 'Days since the last touch' : 'Days since added, never touched'}">${c.band.label} · ${c.days}d</span>
                 <span class="muted small block">${c.count ? plural(c.count, 'touch', 'touches') : 'Never touched'}</span></td>
-              <td class="small">${p.source || html`<span class="muted">—</span>`}</td>
+              <td class="small">${sourceSelect(p)}</td>
               <td class="small">${p.nextStep || html`<span class="muted">No next step</span>`}</td>
               <td>${p.followUpAt ? html`<span class="timer ${late ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>` : html`<span class="muted small">Not scheduled</span>`}</td>
               <td class="actions">
@@ -93,6 +98,41 @@ function prospectsSection() {
       <div class="legend small muted"><strong class="small">Coldness</strong>
         ${COLDNESS.map((b) => html`<span><span class="coldness c-${b.id}">${b.label}</span> ${b.range}</span>`)}
         <span>· days since the last touch, or since added if never touched</span></div>
+    </section>`;
+}
+
+// Everyone marked Unqualified ("not a fit, never touch"), so they can be checked, re-filed or brought back.
+// Filtered by the same source chips and search as To warm up.
+function unqualifiedSection() {
+  const open = state.ui.pool.showUnq;
+  const rows = unqualifiedLeads();
+  const total = state.people.filter((p) => p.stage === 'unqualified').length;
+  const { source } = state.ui.pool;
+  const q = state.ui.pool.search.trim();
+  const day = (iso) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return html`
+    <section class="card flush pool unq" aria-label="Unqualified leads">
+      <div class="panel-head">
+        <div class="stack-xs grow">
+          <h2>Unqualified</h2>
+          <span class="muted small">${plural(total, 'person', 'people')} marked not a fit${source || q ? ` · ${rows.length} shown` : ''}. Off Leads and Follow up; back to Leads if they're worth another try.</span>
+        </div>
+        <button type="button" class="btn" data-action="unq-toggle" aria-expanded="${!!open}">${open ? 'Hide' : `Show ${total}`}</button>
+      </div>
+      ${!open ? '' : rows.length ? html`
+        <div class="sheet-wrap"><table class="sheet">
+          <thead><tr><th>Person</th><th>Marked</th><th>Source</th><th>Last next step</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody>${rows.map(({ p, at }) => html`<tr draggable="true" data-drag-person="${p.id}" title="${DRAG_HINT}">
+            <td><button type="button" class="link name" data-action="edit" data-id="${p.id}">${p.name}</button>
+              <span class="muted small block">${[p.role, p.organization, p.project].filter(Boolean).join(' · ') || 'Unassigned'}</span></td>
+            <td class="small">${day(at)}</td>
+            <td class="small">${sourceSelect(p)}</td>
+            <td class="small">${p.nextStep || html`<span class="muted">—</span>`}</td>
+            <td class="actions">
+              <button type="button" class="btn sm" data-action="unq-revive" data-id="${p.id}" title="Not a fit after all: back to To warm up">Back to Leads</button>
+              <button type="button" class="btn sm ghost" data-action="pool-warm" data-id="${p.id}" title="They responded: onto Follow up">→ Marketing</button>
+            </td></tr>`)}</tbody></table></div>`
+        : html`<p class="col-empty">${q ? `No unqualified people match “${q}”${source ? ` in ${source}` : ''}.` : source ? `No unqualified people from ${source}.` : 'Nobody is marked Unqualified.'}</p>`}
     </section>`;
 }
 
@@ -127,11 +167,13 @@ export function renderSources() {
       ${q ? html`<button type="button" class="link small" data-action="lead-search-clear">Clear</button>` : ''}
     </div>
     ${prospectsSection()}
+    ${unqualifiedSection()}
     <h2>Hunting grounds</h2>
+    <p class="muted small">Drag a name from the lists on this page onto a source to move them there.</p>
     <div class="source-grid" role="list">
       ${SOURCES.map((s, i) => {
         const x = sourceStats(s.id);
-        return html`<button type="button" role="listitem" class="source-card ${s.id === sel.id ? 'on' : ''}" data-action="pick-source" data-id="${s.id}" aria-pressed="${s.id === sel.id}">
+        return html`<button type="button" role="listitem" class="source-card ${s.id === sel.id ? 'on' : ''}" data-action="pick-source" data-id="${s.id}" data-drop-source="${s.id}" aria-pressed="${s.id === sel.id}">
           <span><span class="name">${i + 1} · ${s.id}</span><span class="muted small block">${s.kind}</span></span>
           <span class="big">${x.foundWeek}<span class="muted small"> found this wk</span></span>
           <span class="small">${s.mode === 'list' ? `${x.left} to research` : 'Open search'} · <span class="accent">${x.engaged} engaged</span></span>
@@ -165,9 +207,9 @@ export function renderSources() {
           : `${sel.id} has no fixed list: log each person as you find them.`}</p>`}
       ${finds.length ? html`
         <div class="finds"><h3 class="h3">Logged finds</h3>
-          ${finds.slice(0, 12).map((p) => html`<button type="button" class="mini-row" data-action="edit" data-id="${p.id}">
+          ${finds.slice(0, 12).map((p) => html`<button type="button" class="mini-row" data-action="edit" data-id="${p.id}" draggable="true" data-drag-person="${p.id}" title="${DRAG_HINT}">
             <span class="name">${p.name}</span><span class="muted small">${[p.role, p.organization].filter(Boolean).join(', ')} · ${new Date(p.foundAt).toLocaleDateString()}</span>
-            ${isEngaged(p) ? html`<span class="tag stage s-${p.stage}">${stageLabel(p.stage)}</span>` : ''}</button>`)}
+            ${isEngaged(p) ? html`<span class="tag stage s-${p.stage}">${stageLabel(p.stage)}</span>` : p.stage === 'unqualified' ? html`<span class="status unqualified">Unqualified</span>` : ''}</button>`)}
         </div>` : ''}
     </section>`;
 }

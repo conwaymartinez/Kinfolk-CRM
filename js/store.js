@@ -212,7 +212,7 @@ export const state = {
   now: Date.now(),
   ui: {
     route: 'today', followView: 'pipeline', search: '', account: '', industry: '', stage: '',
-    pool: { source: '', sort: 'new', search: '' },
+    pool: { source: '', sort: 'new', search: '', showUnq: true },
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
   },
@@ -494,6 +494,24 @@ export function stepStage(id, dir) {
 
 /** `U`: to Unqualified, or back to Marketing. */
 export const toggleUnqualified = (id) => { const p = byId(id); return p ? setStage(id, p.stage === 'unqualified' ? FIRST_ENGAGED : 'unqualified') : ''; };
+
+/** Move someone to another hunting ground (drag a name onto a source on Leads, or the row's Source menu). */
+export function setSource(id, source) {
+  const p = byId(id);
+  if (!p || p.source === source || (source && !SOURCE_IDS.includes(source))) return '';
+  patchPerson(id, { source });
+  return source ? `${p.name} moved to ${source}` : `${p.name} has no source now`;
+}
+
+/** Unqualified people, for the Leads page (filtered like To warm up), most recently marked first. */
+export function unqualifiedLeads() {
+  const { source } = state.ui.pool;
+  const at = (p) => [...(p.stageHistory || [])].reverse().find((h) => h.stage === 'unqualified')?.at || addedAt(p) || '';
+  return state.people
+    .filter((p) => p.stage === 'unqualified' && (!source || p.source === source) && matchesLead(p))
+    .map((p) => ({ p, at: at(p) }))
+    .sort((a, b) => b.at.localeCompare(a.at) || a.p.name.localeCompare(b.p.name));
+}
 
 export function snooze(id, hours, label) {
   const p = patchPerson(id, { followUpAt: new Date(Date.now() + hours * HOUR).toISOString() });

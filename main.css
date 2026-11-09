@@ -170,6 +170,12 @@ kbd { font: 600 11px/1 var(--font); border: 1px solid currentColor; border-radiu
 .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .col { background: var(--bg-2); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 240px; transition: box-shadow 0.15s; }
 .col.drag-over { box-shadow: inset 0 0 0 2px var(--accent); }
+/* Leads: drag a name onto a source card or chip */
+[data-drag-person] { cursor: grab; }
+[data-drag-person].dragging { opacity: 0.45; }
+.dragging-person .source-card, .dragging-person .chip[data-drop-source] { border-style: dashed; border-color: var(--accent); }
+.source-card.drag-over, .chip.drag-over { box-shadow: 0 0 0 3px var(--accent); background: var(--accent-bg); color: var(--ink); }
+.unq { margin-top: 16px; }
 .col-head { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 4px 6px; }
 .col-head h2 { font-size: 15px; }
 .col-empty { color: var(--muted); font-size: 13px; padding: 16px; text-align: center; }

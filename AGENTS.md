@@ -59,6 +59,8 @@ Filters: search, account, industry (focus industries come first). Cards and rows
   - **Touch** opens the record with a touch ready; they stay in Leads and their follow-up runs on the same timer as Follow up (due → late).
   - **→ Marketing** once they respond: onto Follow up (due within a week, Marketing's rhythm).
   - **Unqualified** when they're not a fit (e.g. can't afford it).
+- **Unqualified** (below To warm up, open by default, Hide/Show toggle `state.ui.pool.showUnq`) lists everyone at stage Unqualified, most recently marked first, under the same source chips and search. Actions: **Back to Leads** (→ Prospect) and **→ Marketing**.
+- **Moving someone to another source:** drag a name (a To warm up or Unqualified row, or a Logged find) onto a source card or a source chip (`data-drag-person` → `data-drop-source`, `setSource` in store.js). Each row's Source menu does the same without dragging (touch screens). Only the person's `source` changes; a company-list target keeps its own source.
 
 ### Stage: the one marker
 
@@ -73,7 +75,7 @@ Filters: search, account, industry (focus industries come first). Cards and rows
 | Negotiation | Offer on the table; terms, price, objections | 24H | Follow up |
 | Won | Purchased | — | Records only (spreadsheet ▸ Records, search) |
 | Lost | Final no, with `lostReason` | — | Records only (spreadsheet ▸ Records, search) |
-| Unqualified | Not a fit: don't revive | — | Nowhere (search only) |
+| Unqualified | Not a fit: don't revive | — | Leads › Unqualified, and search |
 
 An objection keeps a deal live; Lost is only for a final no. Cold vs Unqualified: sending someone back to Leads (`P`) means "went cold, revive later". Unqualified (`U`) means "never touch again".
 
@@ -111,7 +113,7 @@ A touch is append-only: `{touch_id, date, person_id, person, next_step, project}
 
 ### Moves
 
-- Dragging a card to another board column sets that stage.
+- Dragging a card to another board column sets that stage. Dragging a name on Leads onto a source sets the source.
 - `]` / `[` move one stage up or down (Prospect … Negotiation). Won, Lost and Unqualified don't step; set Won or Lost in the person's Stage row (or the bulk bar).
 - `P` sends someone back to Leads (gone cold). `U` toggles Unqualified (back to Marketing).
 - Joining or moving between board stages applies the stage's rhythm (see Rhythm).
@@ -169,7 +171,7 @@ Sheet columns:
 
 ## Invariants
 
-- Stage is the only marker. Late and Win are derived. Prospects, Won, Lost and Unqualified people never enter the board or the Late count. Won and Lost show only under Records and in search; Unqualified only in search.
+- Stage is the only marker. Late and Win are derived. Prospects, Won, Lost and Unqualified people never enter the board or the Late count. Won and Lost show only under Records and in search; Unqualified only in Leads › Unqualified and in search.
 - Finds count toward the daily goal. A touch does not.
 - A touch is always date + next step + project.
 - Kinfolk never writes sheet-owned or formula columns.
