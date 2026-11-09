@@ -213,7 +213,7 @@ export const state = {
   now: Date.now(),
   ui: {
     route: 'today', followView: 'pipeline', search: '', account: '', industry: '', stage: '',
-    pool: { source: '', sort: 'new', search: '', showUnq: true, picked: [], anchor: null },
+    pool: { tab: 'warm', source: '', sort: 'new', search: '', limit: 25, picked: [], anchor: null },
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
   },

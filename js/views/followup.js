@@ -6,8 +6,7 @@ import {
 } from '../store.js';
 
 export const SHEET_COLS = [
-  { key: 'name', label: 'Name' }, { key: 'stage', label: 'Stage' },
-  { key: 'industry', label: 'Industry' }, { key: 'project', label: 'Project' }, { key: 'source', label: 'Source' },
+  { key: 'name', label: 'Name' }, { key: 'stage', label: 'Stage' }, { key: 'project', label: 'Project' },
   { key: 'nextStep', label: 'Next step' }, { key: 'followUpAt', label: 'Follow-up' },
 ];
 
@@ -50,17 +49,12 @@ function stageStrip() {
   const count = (id) => state.people.filter((p) => p.stage === id && matchesOtherFilters(p)).length;
   return html`
     <section class="stage-strip" aria-label="Filter by stage">
-      <div class="stage-tiles" role="group" aria-label="Stage">
-        ${ENGAGED.map((s) => html`<button type="button" class="stage-tile s-${s.id} ${sel === s.id ? 'on' : ''} ${sel && sel !== s.id ? 'dim' : ''}"
-          data-action="stage-filter" data-value="${s.id}" aria-pressed="${sel === s.id}">
-          <span class="row between"><strong>${s.label}</strong><span class="n">${count(s.id)}</span></span>
-          <span class="small">${s.desc} · every ${s.every}</span></button>`)}
-      </div>
-      <div class="records small" role="group" aria-label="Closed records">
-        <span class="muted">Records:</span>
-        ${['won', 'lost'].map((id) => html`<button type="button" class="pill ${sel === id ? 'on' : ''}" data-action="stage-filter" data-value="${id}"
-          aria-pressed="${sel === id}">${stageLabel(id)} · ${count(id)}</button>`)}
-      </div>
+      ${ENGAGED.map((s) => html`<button type="button" class="stage-tile s-${s.id} ${sel === s.id ? 'on' : ''} ${sel && sel !== s.id ? 'dim' : ''}"
+        data-action="stage-filter" data-value="${s.id}" aria-pressed="${sel === s.id}" title="${s.desc} · every ${s.every}">
+        <strong>${s.label}</strong><span class="n">${count(s.id)}</span></button>`)}
+      <span class="sep" aria-hidden="true"></span>
+      ${['won', 'lost'].map((id) => html`<button type="button" class="pill ${sel === id ? 'on' : ''}" data-action="stage-filter" data-value="${id}"
+        aria-pressed="${sel === id}">${stageLabel(id)} · ${count(id)}</button>`)}
     </section>`;
 }
 
@@ -73,21 +67,17 @@ function pipeline() {
   const closed = closedStats(now);
   return html`
     <p class="muted small">${plural(st.total, 'person', 'people')} waiting in <a href="#/leads">Leads</a>.
-      ${closed.wonMonth || closed.lostMonth ? `Last 30 days: ${closed.wonMonth} won, ${closed.lostMonth} lost. ` : ''}Drag a card to change its stage.</p>
+      ${closed.wonMonth || closed.lostMonth ? `Last 30 days: ${closed.wonMonth} won, ${closed.lostMonth} lost. ` : ''}Click a name to open it; drag a card to change its stage.</p>
     <div class="board" aria-label="Follow-up board">
       ${ENGAGED.map((c) => html`
         <section class="col" data-drop="${c.id}" aria-label="${c.label}">
-          <div class="col-head"><h2><span class="tag stage s-${c.id}">${c.label}</span></h2><span class="muted small">${c.desc} · ${c.every} · ${cols[c.id].length}</span></div>
+          <div class="col-head" title="${c.desc}"><h2><span class="tag stage s-${c.id}">${c.label}</span></h2><span class="muted small">every ${c.every} · <strong>${cols[c.id].length}</strong></span></div>
           ${cols[c.id].length ? cols[c.id].map((p) => html`
             <article class="person-card ${sel === p.id ? 'selected' : ''} ${sel && sel !== p.id ? 'dim' : ''}" draggable="true"
               data-card="${p.id}" tabindex="0" aria-label="${p.name}, ${rel(p.followUpAt, now)}">
-              <div class="card-top"><span class="name">${p.name}</span><span class="tags">${tags(p, false)}</span></div>
-              <span class="muted small">${[p.organization, p.project].filter(Boolean).join(' · ') || 'Unassigned'}</span>
-              <span class="step ${p.nextStep ? '' : 'muted'}">${p.nextStep || 'No next step'}</span>
-              <div class="card-foot">
-                <span class="timer ${isLate(p, now) ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>
-                <button type="button" class="link small" data-action="edit" data-id="${p.id}" aria-label="Edit ${p.name}">Edit</button>
-              </div>
+              <div class="card-top"><button type="button" class="link name" data-action="edit" data-id="${p.id}" title="Open ${p.name}">${p.name}</button>
+                <span class="timer ${isLate(p, now) ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></div>
+              <div class="card-top"><span class="step ${p.nextStep ? '' : 'muted'}" title="${p.nextStep}">${p.nextStep || 'No next step'}</span>${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}</div>
             </article>`) : html`<p class="col-empty">${filtered ? 'No matches here' : 'Nobody here right now'}</p>`}
         </section>`)}
     </div>`;
@@ -151,21 +141,18 @@ function sheet() {
   const { key, dir } = state.ui.sort;
   const filtered = state.ui.search || state.ui.account || state.ui.industry || state.ui.stage;
   return html`
-    ${multi.length > 1 ? bulkBar(multi) : html`<p class="muted small sheet-hint">${state.ui.search ? 'Searching everyone, including Leads, Won, Lost and Unqualified. ' : 'Engaged people only; search to find anyone, or pick Won / Lost under Records. '}Shift-click to select a range, ${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'}-click to add one, then edit them together.</p>`}
+    ${multi.length > 1 ? bulkBar(multi) : html`<p class="muted small sheet-hint">${state.ui.search ? 'Searching everyone. ' : 'Engaged only; search to find anyone. '}Click a name to open it · Shift-click a range, ${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'}-click to add one.</p>`}
     <div class="sheet-wrap" aria-label="People spreadsheet">
       <table class="sheet">
         <thead><tr>${SHEET_COLS.map((c) => html`<th aria-sort="${c.key === key ? (dir > 0 ? 'ascending' : 'descending') : 'none'}">
-          <button type="button" data-action="sort" data-key="${c.key}">${c.label}${c.key === key ? (dir > 0 ? ' ↑' : ' ↓') : ''}</button></th>`)}<th><span class="sr">Edit</span></th></tr></thead>
+          <button type="button" data-action="sort" data-key="${c.key}">${c.label}${c.key === key ? (dir > 0 ? ' ↑' : ' ↓') : ''}</button></th>`)}</tr></thead>
         <tbody>
           ${rows.map((p) => html`<tr class="${isSel(p.id) ? 'selected' : ''}" data-row="${p.id}" aria-selected="${isSel(p.id)}">
-              <td><span class="name">${p.name}</span><span class="muted small block">${p.organization}</span></td>
+              <td><button type="button" class="link name" data-action="edit" data-id="${p.id}" title="Open ${p.name}">${p.name}</button></td>
               <td>${stageTag(p)}</td>
-              <td class="small">${p.industry}</td>
               <td class="small strong">${p.project}</td>
-              <td class="small">${p.source}</td>
               <td class="small">${p.nextStep || html`<span class="muted">No next step</span>`} ${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}</td>
               <td>${timeCell(p, now)}</td>
-              <td><button type="button" class="btn sm" data-action="edit" data-id="${p.id}" aria-label="Edit ${p.name}">Edit</button></td>
             </tr>`)}
         </tbody>
       </table>
@@ -176,9 +163,7 @@ function sheet() {
         <select data-bind="sortKey">${SHEET_COLS.map((c) => html`<option value="${c.key}" ${c.key === key ? 'selected' : ''}>${c.label}</option>`)}</select></label>
       ${rows.map((p) => html`<button type="button" class="sheet-card" data-action="edit" data-id="${p.id}">
           <span class="card-top"><span class="name">${p.name}</span>${stageTag(p)}</span>
-          <span class="muted small">${[p.organization, p.project, p.source].filter(Boolean).join(' · ')}</span>
-          <span class="small">${p.nextStep || 'No next step'}</span>
-          <span class="card-top">${timeCell(p, now)}<span class="tags">${tags(p, false)}</span></span>
+          <span class="card-top"><span class="small step">${p.nextStep || 'No next step'}</span>${timeCell(p, now)}</span>
         </button>`)}
     </div>`;
 }

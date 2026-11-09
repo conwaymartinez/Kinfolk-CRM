@@ -5,7 +5,7 @@ import { state } from './store.js';
 import { startSync, connect, disconnect, pull, syncLabel } from './sync.js';
 import { renderToday, emptyFind } from './views/today.js';
 import { renderFollowUp, sortedRows } from './views/followup.js';
-import { renderSources } from './views/sources.js';
+import { renderSources, PAGE } from './views/sources.js';
 import { renderModal } from './views/modals.js';
 
 const root = document.getElementById('root');
@@ -212,13 +212,15 @@ function act(action, el) {
     case 'edit': openPerson(num); return;
     case 'close-modal': closeModal(); return;
     case 'clear-filters': Object.assign(state.ui, { search: '', account: '', industry: '', stage: '' }); break;
-    case 'pool-source': state.ui.pool.source = el.dataset.value; break;
+    case 'pool-source': Object.assign(state.ui.pool, { source: el.dataset.value, limit: PAGE }); break;
+    case 'lead-tab': Object.assign(state.ui.pool, { tab: el.dataset.value, limit: PAGE, picked: [], anchor: null }); break;
+    case 'pool-more': state.ui.pool.limit += PAGE; break;
+    case 'pool-all': state.ui.pool.limit = Infinity; break;
     case 'lead-search-clear': state.ui.pool.search = ''; focusAfter = '#lead-search'; break;
     case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
     case 'pool-warm': toast(S.setStage(num, S.FIRST_ENGAGED)); break;
     case 'pool-unqualified': toast(S.setStage(num, 'unqualified')); break;
     case 'lead-pick-clear': state.ui.pool.picked = []; state.ui.pool.anchor = null; break;
-    case 'unq-toggle': state.ui.pool.showUnq = !state.ui.pool.showUnq; break;
     case 'unq-revive': toast(S.setStage(num, 'prospect')); break;
     case 'stage-filter': state.ui.stage = state.ui.stage === el.dataset.value ? '' : el.dataset.value; break;
     case 'sort': {
@@ -284,7 +286,7 @@ function onBind(el, final) {
   if (b === 'leadBulkSource') { if (val !== '__') { toast(S.bulkSource(state.ui.pool.picked, val)); Object.assign(state.ui.pool, { picked: [], anchor: null }); } return render(); }
   if (b === 'bulkSource') { if (val !== '__') toast(S.bulkSource(picked(), val)); return render(); }
   if (b === 'personSource') { toast(S.setSource(Number(el.dataset.id), val)); return render(); }
-  if (b === 'leadSearch') { state.ui.pool.search = val; return render(); }
+  if (b === 'leadSearch') { Object.assign(state.ui.pool, { search: val, limit: PAGE }); return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
   if (scope === 'today') { state.ui.today[field] = val; return render(); }
   if (scope === 'find') { state.ui.find[field] = val; if (state.ui.find.error) { state.ui.find.error = ''; render(); } return; }
