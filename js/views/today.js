@@ -72,7 +72,7 @@ function researchCard(t, total) {
         <button class="btn lg" type="button" data-action="skip-target" data-id="${t.id}">Can't find anyone yet <kbd>S</kbd></button>
         <button class="btn lg" type="button" data-action="notfit-target" data-id="${t.id}">Not a fit <kbd>X</kbd></button>
       </div>
-      <p class="muted small">Saving counts toward today's goal and puts them in Sources › Prospects with “First message” due tomorrow.</p>
+      <p class="muted small">Saving counts toward today's goal and puts them in Leads with “First message” due tomorrow.</p>
     </form>`;
 }
 
@@ -84,9 +84,9 @@ function emptyCard(found) {
       <h3>${found ? `List done. ${plural(found, 'new person', 'new people')} found today.` : 'No companies waiting to be researched.'}</h3>
       <p>${any && source
         ? `Nothing left for ${source}${state.ui.today.project ? ' · ' + state.ui.today.project : ''}. Try another source, or paste a fresh list.`
-        : 'Paste a company list in Sources, or log someone you found at an event, while manning, searching or on social.'}</p>
+        : 'Paste a company list in Leads, or log someone you found at an event, while manning, searching or on social.'}</p>
       <div class="row wrap">
-        <a class="btn primary lg" href="#/sources">Find more in Sources →</a>
+        <a class="btn primary lg" href="#/leads">Find more in Leads →</a>
         ${any && source ? html`<button class="btn lg" type="button" data-action="today-any">Any source</button>` : ''}
       </div>
     </article>`;
@@ -132,7 +132,7 @@ export function renderToday() {
         <div class="stack-sm">
           <div class="row between end wrap">
             <div><h2>Prospecting: find new people</h2>
-              <p class="muted small">Research one company at a time. Messaging happens later, from Prospects in Sources.</p></div>
+              <p class="muted small">Research one company at a time. Messaging happens later, from Leads.</p></div>
             <button class="goal" type="button" data-action="edit-goal" title="Change daily goal">${foundToday.length} of ${goal} found</button>
           </div>
           <div class="progress" role="progressbar" aria-label="Found today" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${foundToday.length}"><div style="width:${pct}%"></div></div>
@@ -145,7 +145,7 @@ export function renderToday() {
         <section class="card stack-sm">
           <h2 class="h3">Found today</h2>
           ${foundToday.length ? foundToday.slice().reverse().slice(0, 6).map((p) => html`
-            <button type="button" class="mini-row" data-action="edit" data-id="${p.id}"><span class="name">${p.name}</span><span class="muted small">${p.organization || p.source} → Prospects</span></button>`)
+            <button type="button" class="mini-row" data-action="edit" data-id="${p.id}"><span class="name">${p.name}</span><span class="muted small">${p.organization || p.source} → Leads</span></button>`)
             : html`<p class="muted small">Nobody yet. Your first find shows up here.</p>`}
         </section>
         <section class="card stack-sm">
@@ -156,7 +156,7 @@ export function renderToday() {
         <section class="card stack-sm">
           <h2 class="h3">Companies left to research</h2>
           ${left.map((s) => html`<div class="row between small"><span>${s.id}</span><strong class="${s.n ? '' : 'muted'}">${s.n}</strong></div>`)}
-          <a class="link small" href="#/sources">Manage sources →</a>
+          <a class="link small" href="#/leads">Manage sources in Leads →</a>
         </section>
       </aside>
     </div>`;
