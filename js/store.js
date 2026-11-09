@@ -212,7 +212,7 @@ export const state = {
   now: Date.now(),
   ui: {
     route: 'today', followView: 'pipeline', search: '', account: '', industry: '', stage: '',
-    pool: { source: '', sort: 'new' },
+    pool: { source: '', sort: 'new', search: '' },
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
   },
@@ -501,11 +501,17 @@ export function snooze(id, hours, label) {
 }
 
 /** The Leads page: everyone not engaged yet (new, or gone cold). */
+/** The Leads search box: matches a person or a company by any of their text. */
+const leadQuery = () => state.ui.pool.search.trim().toLowerCase();
+const hasQuery = (q, ...fields) => fields.join(' ').toLowerCase().includes(q);
+export const matchesLead = (p, q = leadQuery()) => !q || hasQuery(q, p.name, p.organization, p.role, p.project, p.industry, p.source, p.nextStep, p.email, p.phone);
+export const matchesTarget = (t, q = leadQuery()) => !q || hasQuery(q, t.company, t.industry, t.hint, t.list, t.project, byId(t.personId)?.name || '');
+
 export function prospects() {
   const { source, sort } = state.ui.pool;
   const t = (p) => new Date(addedAt(p)).getTime();
   return state.people
-    .filter((p) => p.stage === 'prospect' && (!source || p.source === source))
+    .filter((p) => p.stage === 'prospect' && (!source || p.source === source) && matchesLead(p))
     .sort((a, b) => (sort === 'old' ? t(a) - t(b) : t(b) - t(a)) || a.name.localeCompare(b.name));
 }
 

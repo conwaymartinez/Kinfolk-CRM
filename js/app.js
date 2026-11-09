@@ -189,6 +189,7 @@ function act(action, el) {
     case 'close-modal': closeModal(); return;
     case 'clear-filters': Object.assign(state.ui, { search: '', account: '', industry: '', stage: '' }); break;
     case 'pool-source': state.ui.pool.source = el.dataset.value; break;
+    case 'lead-search-clear': state.ui.pool.search = ''; focusAfter = '#lead-search'; break;
     case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
     case 'pool-warm': toast(S.setStage(num, S.FIRST_ENGAGED)); break;
     case 'pool-unqualified': toast(S.setStage(num, 'unqualified')); break;
@@ -253,6 +254,7 @@ function onBind(el, final) {
   if (b === 'bulkStage') { if (val) toast(S.bulkStage(picked(), val)); return render(); }
   if (b === 'bulkProject') { if (val !== '__') toast(S.bulkSet(picked(), 'project', val)); return render(); }
   if (b === 'poolSort') { state.ui.pool.sort = val; return render(); }
+  if (b === 'leadSearch') { state.ui.pool.search = val; return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
   if (scope === 'today') { state.ui.today[field] = val; return render(); }
   if (scope === 'find') { state.ui.find[field] = val; if (state.ui.find.error) { state.ui.find.error = ''; render(); } return; }
@@ -423,6 +425,10 @@ document.addEventListener('keydown', (e) => {
     if (k === 's' && t) return act('skip-target', { dataset: { id: t.id } });
     if (k === 'x' && t) return act('notfit-target', { dataset: { id: t.id } });
     if (k === 'l') { e.preventDefault(); return openFind(); }
+    return;
+  }
+  if (state.ui.route === 'sources') {
+    if (k === 'f' || k === '/') { e.preventDefault(); focusAfter = '#lead-search'; return render(); }
     return;
   }
   if (state.ui.route !== 'follow-up') return;
