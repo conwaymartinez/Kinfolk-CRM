@@ -116,7 +116,7 @@ function moveSelection(sel, dx, dy) {
     return i < 0 ? order[0] : order[Math.min(order.length - 1, Math.max(0, i + dy))];
   }
   const c = S.columns();
-  const cols = [c.touch, c.wip, c.late].map((list) => list.map((p) => p.id));
+  const cols = S.ENGAGED.map((st) => c[st.id].map((p) => p.id));
   let ci = cols.findIndex((ids) => ids.includes(sel));
   if (ci < 0) return cols.find((ids) => ids.length)?.[0] ?? null;
   const ri = cols[ci].indexOf(sel);
@@ -170,7 +170,8 @@ function rowClick(id, e) {
   ui.selectedId = ui.selectedId === id && !wasMulti ? null : id;
 }
 
-const flagOn = (ids, field) => ids.some((id) => !S.byId(id)?.[field]);
+/** `C` on a selection: all Cold already → back to Attention, else all to Cold. */
+const coldTarget = (ids) => (ids.every((id) => S.byId(id)?.stage === 'cold') ? 'attention' : 'cold');
 
 function act(action, el) {
   const id = el?.dataset.id;
@@ -179,8 +180,6 @@ function act(action, el) {
   switch (action) {
     case 'open-followup': state.ui.selectedId = num; go('#/follow-up'); return;
     case 'add-person': openPerson(null); return;
-    case 'bulk-flag': toast(S.bulkFlag(picked(), el.dataset.field, el.dataset.on === '1')); break;
-    case 'bulk-pipeline': toast(S.bulkBackToPipeline(picked())); break;
     case 'bulk-snooze': { const p = S.PRESETS.find((x) => x.id === el.dataset.value); toast(S.bulkSnooze(picked(), p.hours, p.label)); break; }
     case 'bulk-remove':
       if (!state.ui.bulkConfirm) { state.ui.bulkConfirm = true; break; }
@@ -188,12 +187,11 @@ function act(action, el) {
     case 'bulk-clear': clearMulti(); break;
     case 'edit': openPerson(num); return;
     case 'close-modal': closeModal(); return;
-    case 'only-active': state.ui.onlyActive = !state.ui.onlyActive; break;
-    case 'clear-filters': Object.assign(state.ui, { search: '', onlyActive: false, account: '', industry: '', stage: '' }); break;
+    case 'clear-filters': Object.assign(state.ui, { search: '', account: '', industry: '', stage: '' }); break;
     case 'pool-source': state.ui.pool.source = el.dataset.value; break;
     case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
     case 'pool-warm': toast(S.setStage(num, 'attention')); break;
-    case 'pool-notfit': toast(S.toggleUnqualified(num)); break;
+    case 'pool-cold': toast(S.setStage(num, 'cold')); break;
     case 'stage-filter': state.ui.stage = state.ui.stage === el.dataset.value ? '' : el.dataset.value; break;
     case 'sort': {
       const k = el.dataset.key;
@@ -216,7 +214,7 @@ function act(action, el) {
     case 'disconnect': disconnect(); state.ui.modal = null; toast('Disconnected · data stays in this browser'); break;
     case 'pull': pull(); state.ui.modal = null; break;
     // person modal
-    case 'draft-stage': m.draft.funnel = el.dataset.value; m.draft.cold = el.dataset.value === 'cold'; if (m.draft.cold) m.draft.unqualified = false; break;
+    case 'draft-stage': m.draft.stage = el.dataset.value; break;
     case 'draft-project': m.draft.project = m.draft.project === el.dataset.value ? '' : el.dataset.value; break;
     case 'win-prefix': {
       const pre = el.dataset.value + ': ';
@@ -249,6 +247,7 @@ function onBind(el, final) {
   const [scope, field] = b.split('.');
   if (b === 'search') { state.ui.search = val; return render(); }
   if (b === 'account' || b === 'industry') { state.ui[b] = val; return render(); }
+  if (b === 'bulkStage') { if (val) toast(S.bulkStage(picked(), val)); return render(); }
   if (b === 'bulkProject') { if (val !== '__') toast(S.bulkSet(picked(), 'project', val)); return render(); }
   if (b === 'poolSort') { state.ui.pool.sort = val; return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
@@ -265,11 +264,6 @@ function onBind(el, final) {
     if (field === 'reportsToId') { d.reportsToId = val ? Number(val) : null; return; }
     if (field === 'strength') { d.strength = Number(val); return; }
     d[field] = val;
-    // Unqualified and Cold storage are two different ways out of the pipeline: pick one.
-    if (field === 'cold' && val) d.unqualified = false;
-    if (field === 'unqualified' && val) d.cold = false;
-    // Leaving Unqualified with no engaged stage yet starts them in the Cold pool.
-    if (field === 'unqualified' && !val && d.funnel === 'cold') d.cold = true;
     if (field === 'nextStep') {
       const changed = val.trim() !== (m.origNext || '').trim();
       if ((changed && !m.touch) || m.error) { m.touch = m.touch || changed; m.error = ''; render(); }
@@ -289,7 +283,7 @@ async function onSubmit(form) {
     if (!f.name.trim()) { f.error = 'Add the name of the person who decides.'; focusAfter = '#find-name'; return render(); }
     if (!f.email.trim() && !f.phone.trim()) { f.error = 'Add an email, phone or LinkedIn so you can reach them.'; return render(); }
     const p = S.saveFind({ ...f, organization: t.company, industry: t.industry, project: t.project, source: t.source }, t.id);
-    toast(`${p.name} saved to the Cold pool · first message due tomorrow`);
+    toast(`${p.name} saved to Prospects · first message due tomorrow`);
     focusAfter = '#research';
     return render();
   }
@@ -299,7 +293,7 @@ async function onSubmit(form) {
     if (!d.email.trim() && !d.phone.trim()) { d.error = 'Add an email, phone or LinkedIn so you can reach them.'; return render(); }
     const p = S.saveFind(d);
     state.ui.modal = null;
-    toast(`${p.name} saved from ${d.source} to the Cold pool · first message due tomorrow`);
+    toast(`${p.name} saved from ${d.source} to Prospects · first message due tomorrow`);
     return render();
   }
   if (kind === 'person') {
@@ -386,7 +380,7 @@ root.addEventListener('drop', (e) => {
   if (!col) return;
   e.preventDefault();
   const id = Number(e.dataTransfer.getData('text/plain'));
-  toast(S.movePerson(id, col.dataset.drop));
+  toast(S.setStage(id, col.dataset.drop));
   render();
 });
 
@@ -455,10 +449,9 @@ document.addEventListener('keydown', (e) => {
   if (k === 'Escape') { state.ui.selectedId = null; clearMulti(); return render(); }
   const ids = picked();
   if (ids.length > 1) {
-    if (k === 'a') { toast(S.bulkFlag(ids, 'activeLead', flagOn(ids, 'activeLead'))); return render(); }
-    if (k === 'u') { toast(S.bulkFlag(ids, 'unqualified', flagOn(ids, 'unqualified'))); return render(); }
-    if (k === 'c') { toast(S.bulkFlag(ids, 'cold', flagOn(ids, 'cold'))); return render(); }
-    if (k === 'r') { toast(S.bulkBackToPipeline(ids)); return render(); }
+    if (k === 'c') { toast(S.bulkStage(ids, coldTarget(ids))); return render(); }
+    if (k === 'p') { toast(S.bulkStage(ids, 'prospect')); return render(); }
+    if (k === ']' || k === '[') { toast(S.bulkStep(ids, k === ']' ? 1 : -1)); return render(); }
     const bp = S.PRESETS.find((p) => p.key === k);
     if (bp) { toast(S.bulkSnooze(ids, bp.hours, bp.label)); return render(); }
     return;
@@ -467,9 +460,8 @@ document.addEventListener('keydown', (e) => {
   if (k === 't') { e.preventDefault(); return openPerson(sel, { touch: true, focus: '#next-step' }); }
   if (k === 'e' || k === 'Enter') { e.preventDefault(); return openPerson(sel); }
   if (k === 'c') { toast(S.toggleCold(sel)); return render(); }
-  if (k === 'r') { toast(S.backToTouch(sel)); return render(); }
-  if (k === 'a') { toast(S.toggleActive(sel)); return render(); }
-  if (k === 'u') { toast(S.toggleUnqualified(sel)); return render(); }
+  if (k === 'p') { toast(S.setStage(sel, 'prospect')); return render(); }
+  if (k === ']' || k === '[') { toast(S.stepStage(sel, k === ']' ? 1 : -1)); return render(); }
   const preset = S.PRESETS.find((p) => p.key === k);
   if (preset) { toast(S.snooze(sel, preset.hours, preset.label)); return render(); }
 });

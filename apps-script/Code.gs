@@ -1,5 +1,5 @@
 /**
- * Kinfolk ⇄ Google Sheets bridge — v4 (Today / Follow up / Sources + funnel stages).
+ * Kinfolk ⇄ Google Sheets bridge — v5 (one Stage per person).
  *
  * Paste this whole file into Extensions ▸ Apps Script of the Kinfolk Database sheet,
  * run `setup` once, then Deploy ▸ New deployment ▸ Web app
@@ -15,9 +15,17 @@
  *  - The funnel columns (`funnel_stage`, `stage_history`) are read and written again.
  *    Cold = not engaged yet (status Cold); Attention / Interest / Desire / Action are on Follow up.
  *  - `follow_up_at` is kept for Cold people too: the Cold pool runs on the same follow-up timer.
+ *
+ * What changed in v5:
+ *  - One marker per person: `funnel_stage` = prospect | attention | interest | desire | action | cold.
+ *    Prospect = not engaged yet (Sources). Attention…Action = Follow up. Cold = dead end for now (nowhere).
+ *  - `status` is a read-only mirror for the Dashboard: Prospect / Touch / Cold. `active_lead` is retired.
+ *  - The first time v5 runs it migrates every row once (Kinfolk menu ▸ Migrate to stages shows the result),
+ *    after copying People to a "People before v5" backup tab.
  */
 
-const VERSION = 4;
+const VERSION = 5;
+const STAGES_PROP = 'KINFOLK_STAGES_V5';
 const TZ = 'Asia/Manila';
 const TOKEN_PROP = 'KINFOLK_TOKEN';
 
@@ -34,7 +42,7 @@ const PEOPLE_FIELDS = ['id', 'name', 'status', 'follow_up_at', 'next_step', 'pro
   'email', 'phone', 'source', 'active_lead', 'found_at', 'how_i_know', 'notes', 'legacy_id', 'funnel_stage', 'stage_history'];
 // Fields Kinfolk may change. Everything else (headline, notes, geography…) is sheet-owned.
 const WRITABLE = ['name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role', 'industry',
-  'industry_check', 'reports_to_id', 'strength', 'created_at', 'email', 'phone', 'source', 'active_lead', 'found_at',
+  'industry_check', 'reports_to_id', 'strength', 'created_at', 'email', 'phone', 'source', 'found_at',
   'funnel_stage', 'stage_history'];
 // Only written when Kinfolk creates the person.
 const ON_CREATE = ['id', 'headline', 'notes'];
@@ -52,6 +60,8 @@ function onOpen() {
     .addItem('Promote staging', 'promoteStaging')
     .addItem('Rename group…', 'renameGroupPrompt')
     .addItem('Refresh formulas', 'refreshFormulas')
+    .addItem('Migrate to stages (v5)', 'migrateStagesMenu')
+    .addItem('Merge duplicate people…', 'mergeDuplicatesMenu')
     .addSeparator()
     .addItem('Show sync token', 'showToken')
     .addItem('Setup / reset token', 'setup')
@@ -64,6 +74,7 @@ function setup() {
   ensureSheets_();
   const token = Utilities.getUuid().replace(/-/g, '').slice(0, 24);
   PropertiesService.getScriptProperties().setProperty(TOKEN_PROP, token);
+  migrateStages_();
   refreshFormulas();
   try {
     SpreadsheetApp.getUi().alert('Kinfolk sync token', 'Copy this into Kinfolk ▸ Sync settings:\n\n' + token +
@@ -128,6 +139,7 @@ function handle_(params, body) {
   lock.waitLock(25000);
   try {
     ensureSheets_();
+    migrateStages_();
     const ops = (body && body.ops) || [];
     const results = [];
     if (ops.length) {
@@ -374,7 +386,14 @@ function promoteStaging() {
       const p = { id: nextId++, created_at: now, strength: 1, status: 'Prospect', industry_check: 'needs review' };
       fields.forEach(function (f) { const v = at(row, f); if (v !== '') p[f] = v; });
       if (p.industry) p.industry_check = 'auto';
-      if (p.status === 'Touch' || p.status === 'WIP') p.follow_up_at = new Date(now.getTime() + 864e5);
+      // Staging's Status column may hold a stage (Attention…) or an old status (Touch / WIP / Cold).
+      const typed = String(at(row, 'stage') || p.status).trim().toLowerCase();
+      const stage = STAGE_IDS.indexOf(typed) >= 0 ? typed : ({ touch: 'attention', wip: 'interest', cold: 'cold' })[typed] || 'prospect';
+      p.funnel_stage = stage;
+      p.status = statusFor_(stage);
+      p.stage_history = JSON.stringify([{ stage: stage, at: now.toISOString() }]);
+      delete p.active_lead;
+      if (stage !== 'cold') p.follow_up_at = new Date(now.getTime() + 864e5);
       writeRow_(t, String(p.id), p, Object.keys(p));
       rowByName[name.toLowerCase()] = t.rowOf[String(p.id)];
       added++;
@@ -400,4 +419,192 @@ function clearStagingRow_(st, row, header) {
   header.forEach(function (f, i) {
     if (f !== 'possible_duplicate') st.getRange(row, i + 1).clearContent();
   });
+}
+
+// ───────────────────────────── stages (v5) ─────────────────────────────
+// Kept in step with legacyStage in js/store.js.
+
+const STAGE_IDS = ['prospect', 'attention', 'interest', 'desire', 'action', 'cold'];
+const ENGAGED_IDS = ['attention', 'interest', 'desire', 'action'];
+const DEAD_END = /^\s*(out of (network|geography|country|help)|rejected|complete rejection|parked|no way in|ignored|master'?s student|cannot until)/i;
+const NO_REPLY = /no reply|not replying|email not working|^\s*retap/i;
+
+/** The Dashboard-friendly mirror of a stage. */
+function statusFor_(stage) {
+  return stage === 'prospect' ? 'Prospect' : stage === 'cold' ? 'Cold' : 'Touch';
+}
+
+/** One stage from the old markers (Status, funnel_stage, active_lead, next step, whether they were ever touched). */
+function legacyStage_(status, funnel, activeLead, nextStep, touched) {
+  const engaged = ENGAGED_IDS.indexOf(funnel) >= 0 ? funnel : '';
+  const out = status === 'Cold' || status === 'Prospect' || status === 'Unqualified';
+  let s;
+  if (DEAD_END.test(nextStep)) s = 'cold';
+  else if (out) s = touched && String(nextStep).trim() && !NO_REPLY.test(nextStep) ? (engaged || 'attention') : 'prospect';
+  else s = engaged || (status === 'WIP' ? 'interest' : 'attention');
+  if (activeLead && s !== 'cold' && ['prospect', 'attention', 'interest'].indexOf(s) >= 0) s = 'desire';
+  return s;
+}
+
+/**
+ * Runs once: gives every People row one stage, mirrors it into Status, logs it in stage_history and clears
+ * active_lead. People is first copied to a "People before v5" tab. Returns counts, or null if already done.
+ */
+function migrateStages_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(STAGES_PROP)) return null;
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(PEOPLE);
+  if (!sh || sh.getLastRow() < 2) { props.setProperty(STAGES_PROP, new Date().toISOString()); return {}; }
+  const backupName = 'People before v5';
+  if (!ss.getSheetByName(backupName)) sh.copyTo(ss).setName(backupName);
+
+  const touched = {};
+  readTable_(TOUCHES, ['person_id']).forEach(function (t) { if (t.person_id !== '') touched[String(t.person_id)] = true; });
+
+  const n = sh.getLastRow() - 1;
+  const header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  const col = function (f) { return header.indexOf(f) + 1; };
+  const get = function (f) { return col(f) ? sh.getRange(2, col(f), n, 1).getValues().map(function (r) { return r[0]; }) : null; };
+  const ids = get('id'), status = get('status'), funnel = get('funnel_stage'), history = get('stage_history');
+  const active = get('active_lead'), next = get('next_step');
+  const now = new Date().toISOString();
+  const counts = {};
+  const outStage = [], outStatus = [], outHistory = [], outActive = [];
+  for (let i = 0; i < n; i++) {
+    if (ids[i] === '') { outStage.push([funnel ? funnel[i] : '']); outStatus.push([status[i]]); outHistory.push([history ? history[i] : '']); outActive.push([active ? active[i] : '']); continue; }
+    const stage = legacyStage_(String(status[i]).trim(), String(funnel ? funnel[i] : '').trim().toLowerCase(),
+      /^(y|yes|true|1)$/i.test(String(active ? active[i] : '').trim()), String(next ? next[i] : ''), !!touched[String(ids[i])]);
+    let h = [];
+    try { h = JSON.parse(String((history && history[i]) || '[]')); if (!Array.isArray(h)) h = []; } catch (e) { h = []; }
+    // In the old history "cold" meant "not engaged yet", which is Prospect now.
+    h = h.map(function (x) { return x && x.stage === 'cold' ? { stage: 'prospect', at: x.at } : x; });
+    if (!h.length || h[h.length - 1].stage !== stage) h.push({ stage: stage, at: now });
+    outStage.push([stage]); outStatus.push([statusFor_(stage)]); outHistory.push([JSON.stringify(h)]); outActive.push(['']);
+    counts[stage] = (counts[stage] || 0) + 1;
+  }
+  sh.getRange(2, col('funnel_stage'), n, 1).setValues(outStage);
+  sh.getRange(2, col('status'), n, 1).setValues(outStatus);
+  sh.getRange(2, col('stage_history'), n, 1).setValues(outHistory);
+  if (col('active_lead')) sh.getRange(2, col('active_lead'), n, 1).setValues(outActive);
+  props.setProperty(STAGES_PROP, now);
+  return counts;
+}
+
+function migrateStagesMenu() {
+  ensureSheets_();
+  const ui = SpreadsheetApp.getUi();
+  const counts = migrateStages_();
+  if (!counts) {
+    ui.alert('Already on stages', 'This sheet was migrated on ' + PropertiesService.getScriptProperties().getProperty(STAGES_PROP) +
+      '. The original People tab is in "People before v5".', ui.ButtonSet.OK);
+    return;
+  }
+  ui.alert('Migrated to stages', STAGE_IDS.map(function (s) { return s + ': ' + (counts[s] || 0); }).join('\n') +
+    '\n\nThe original People tab is saved as "People before v5".', ui.ButtonSet.OK);
+}
+
+// ───────────────────────────── duplicates ─────────────────────────────
+
+/** "Mark LLado", "mark llado" and "Mark Lllado" all become "marklado". */
+function nameKey_(v) {
+  return String(v || '').toLowerCase().replace(/[^a-z]/g, '').replace(/(.)\1+/g, '$1');
+}
+
+/**
+ * Groups People rows that are the same person: the same name once case, spaces and doubled letters are ignored.
+ * A row with no name whose next step is someone's name (a name typed into the wrong cell) joins that group.
+ * The kept row is the one touched most recently (then the most advanced stage, then the newest).
+ */
+function findDuplicates_() {
+  const t = table_(PEOPLE, 'id');
+  const n = t.sh.getLastRow() - 1;
+  if (n < 1) return { t: t, groups: [] };
+  const rows = t.sh.getRange(2, 1, n, t.width).getValues();
+  const at = function (r, f) { return t.col[f] ? r[t.col[f] - 1] : ''; };
+  const lastTouch = {};
+  readTable_(TOUCHES, ['person_id', 'date']).forEach(function (x) {
+    const k = String(x.person_id), d = new Date(x.date).getTime() || 0;
+    if (!lastTouch[k] || d > lastTouch[k]) lastTouch[k] = d;
+  });
+  const people = rows.map(function (r, i) {
+    return { row: i + 2, id: String(at(r, 'id')), name: String(at(r, 'name')).trim(), next: String(at(r, 'next_step')).trim(),
+      stage: String(at(r, 'funnel_stage')).trim().toLowerCase(), created: new Date(at(r, 'created_at')).getTime() || 0, values: r };
+  }).filter(function (p) { return p.id !== ''; });
+  const byKey = {};
+  people.forEach(function (p) { if (p.name) (byKey[nameKey_(p.name)] = byKey[nameKey_(p.name)] || []).push(p); });
+  people.forEach(function (p) {
+    const k = nameKey_(p.next);
+    if (!p.name && k.length >= 4 && byKey[k]) byKey[k].push(p);
+  });
+  const rank = function (p) { return STAGE_IDS.indexOf(p.stage) >= 0 && p.stage !== 'cold' ? STAGE_IDS.indexOf(p.stage) : -1; };
+  const groups = Object.keys(byKey).filter(function (k) { return byKey[k].length > 1; }).map(function (k) {
+    const g = byKey[k].slice().sort(function (a, b) {
+      return (lastTouch[b.id] || 0) - (lastTouch[a.id] || 0) || rank(b) - rank(a) || b.created - a.created;
+    });
+    return { keep: g[0], drop: g.slice(1) };
+  });
+  return { t: t, groups: groups };
+}
+
+/**
+ * Merges each group into its kept row: blank cells on the kept row are filled from the others (never formula
+ * cells, never the name), notes are joined, touches move to the kept person, and the other rows are deleted.
+ */
+function mergeDuplicates_(found) {
+  const t = found.t;
+  const formulas = t.sh.getRange(2, 1, 1, t.width).getFormulas()[0];
+  const tt = table_(TOUCHES, 'touch_id');
+  const tn = tt.sh.getLastRow() - 1;
+  const tp = tn > 0 && tt.col.person_id ? tt.sh.getRange(2, tt.col.person_id, tn, 1).getValues() : [];
+  const tname = tn > 0 && tt.col.person ? tt.sh.getRange(2, tt.col.person, tn, 1).getValues() : [];
+  const remove = [];
+  found.groups.forEach(function (g) {
+    const keep = g.keep.values.slice();
+    g.drop.forEach(function (d) {
+      Object.keys(t.col).forEach(function (f) {
+        const i = t.col[f] - 1;
+        if (formulas[i] || f === 'name' || f === 'id' || f === 'stage_history') return;
+        if (f === 'notes' && d.values[i] !== '' && String(keep[i]).indexOf(String(d.values[i])) < 0) {
+          keep[i] = [keep[i], d.values[i]].filter(String).join(' · ');
+        } else if (keep[i] === '' && d.values[i] !== '') keep[i] = d.values[i];
+      });
+      remove.push(d.row);
+    });
+    const range = t.sh.getRange(g.keep.row, 1, 1, t.width);
+    const f = range.getFormulas()[0];
+    range.setValues([keep.map(function (v, i) { return f[i] || v; })]);
+    const ids = g.drop.map(function (d) { return d.id; });
+    tp.forEach(function (r, i) {
+      if (ids.indexOf(String(r[0])) >= 0) { r[0] = Number(g.keep.id) || g.keep.id; if (tname[i]) tname[i][0] = g.keep.name; }
+      else if (String(r[0]) === g.keep.id && tname[i]) tname[i][0] = g.keep.name;
+    });
+  });
+  if (tp.length) tt.sh.getRange(2, tt.col.person_id, tn, 1).setValues(tp);
+  if (tname.length) tt.sh.getRange(2, tt.col.person, tn, 1).setValues(tname);
+  remove.sort(function (a, b) { return b - a; }).forEach(function (r) { t.sh.deleteRow(r); });
+  refreshFormulas();
+  return remove.length;
+}
+
+function mergeDuplicatesMenu() {
+  ensureSheets_();
+  const ui = SpreadsheetApp.getUi();
+  const found = findDuplicates_();
+  if (!found.groups.length) { ui.alert('No duplicates', 'Every person in People has a different name.', ui.ButtonSet.OK); return; }
+  const label = function (p) { return (p.name || '(no name, next step "' + p.next + '")') + ' · row ' + p.row; };
+  const list = found.groups.map(function (g) {
+    return 'Keep ' + label(g.keep) + '\n  merge in: ' + g.drop.map(label).join('; ');
+  }).join('\n\n');
+  const ok = ui.alert('Merge duplicate people?', list + '\n\nTouches move to the kept person and the other rows are deleted. ' +
+    'Undo with Edit ▸ Undo or File ▸ Version history.', ui.ButtonSet.OK_CANCEL);
+  if (ok !== ui.Button.OK) return;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const n = mergeDuplicates_(findDuplicates_());
+    ui.alert('Merged', n + ' duplicate row' + (n === 1 ? '' : 's') + ' removed. Open Kinfolk (or press Pull) to see the result.', ui.ButtonSet.OK);
+  } finally {
+    lock.releaseLock();
+  }
 }

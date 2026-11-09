@@ -1,7 +1,7 @@
 // Today: follow-ups first, then a prospecting session that rewards finding people.
 import { html, rel, plural, DAY, startOfDay, startOfWeek } from '../ui.js';
 import {
-  state, statusOf, touchStats, queue, findsBetween, SOURCES, SOURCE_IDS,
+  state, isEngaged, isLate, touchStats, queue, findsBetween, SOURCES, SOURCE_IDS,
 } from '../store.js';
 
 export const emptyFind = () => ({ name: '', role: '', email: '', phone: '', why: '', error: '' });
@@ -9,11 +9,11 @@ export const emptyFind = () => ({ name: '', role: '', email: '', phone: '', why:
 function dueStrip() {
   const now = state.now;
   const endOfDay = startOfDay(now) + DAY;
-  const pipe = state.people.filter((p) => ['touch', 'wip', 'late'].includes(statusOf(p, now)));
-  const late = pipe.filter((p) => statusOf(p, now) === 'late');
-  const today = pipe.filter((p) => statusOf(p, now) !== 'late' && new Date(p.followUpAt).getTime() < endOfDay);
+  const pipe = state.people.filter(isEngaged);
+  const late = pipe.filter((p) => isLate(p, now));
+  const today = pipe.filter((p) => !isLate(p, now) && new Date(p.followUpAt).getTime() < endOfDay);
   const list = [...late, ...today].sort((a, b) => new Date(a.followUpAt) - new Date(b.followUpAt)).slice(0, 3);
-  const next = pipe.filter((p) => statusOf(p, now) !== 'late').sort((a, b) => new Date(a.followUpAt) - new Date(b.followUpAt))[0];
+  const next = pipe.filter((p) => !isLate(p, now)).sort((a, b) => new Date(a.followUpAt) - new Date(b.followUpAt))[0];
   const summary = late.length || today.length
     ? html`<span class="due-sum ${late.length ? 'is-late' : ''}">${[late.length && `${late.length} late`, today.length && `${today.length} due today`].filter(Boolean).join(' · ')}</span>`
     : html`<span class="due-sum">All caught up.${next ? ` Next one ${rel(next.followUpAt, now)}.` : ''}</span>`;
@@ -23,7 +23,7 @@ function dueStrip() {
       ${list.map((p) => html`
         <button type="button" class="due-item" data-action="open-followup" data-id="${p.id}">
           <span class="due-top"><span class="name">${p.name}</span>
-            <span class="timer ${statusOf(p, now) === 'late' ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></span>
+            <span class="timer ${isLate(p, now) ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></span>
           <span class="muted small">${p.nextStep || 'No next step'}</span>
         </button>`)}
       <a class="link" href="#/follow-up">Open Follow up →</a>
@@ -72,7 +72,7 @@ function researchCard(t, total) {
         <button class="btn lg" type="button" data-action="skip-target" data-id="${t.id}">Can't find anyone yet <kbd>S</kbd></button>
         <button class="btn lg" type="button" data-action="notfit-target" data-id="${t.id}">Not a fit <kbd>X</kbd></button>
       </div>
-      <p class="muted small">Saving counts toward today's goal and puts them in Sources › Cold pool with “First message” due tomorrow.</p>
+      <p class="muted small">Saving counts toward today's goal and puts them in Sources › Prospects with “First message” due tomorrow.</p>
     </form>`;
 }
 
@@ -132,7 +132,7 @@ export function renderToday() {
         <div class="stack-sm">
           <div class="row between end wrap">
             <div><h2>Prospecting: find new people</h2>
-              <p class="muted small">Research one company at a time. Messaging happens later, from the Cold pool in Sources.</p></div>
+              <p class="muted small">Research one company at a time. Messaging happens later, from Prospects in Sources.</p></div>
             <button class="goal" type="button" data-action="edit-goal" title="Change daily goal">${foundToday.length} of ${goal} found</button>
           </div>
           <div class="progress" role="progressbar" aria-label="Found today" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${foundToday.length}"><div style="width:${pct}%"></div></div>
@@ -145,13 +145,13 @@ export function renderToday() {
         <section class="card stack-sm">
           <h2 class="h3">Found today</h2>
           ${foundToday.length ? foundToday.slice().reverse().slice(0, 6).map((p) => html`
-            <button type="button" class="mini-row" data-action="edit" data-id="${p.id}"><span class="name">${p.name}</span><span class="muted small">${p.organization || p.source} → Cold pool</span></button>`)
+            <button type="button" class="mini-row" data-action="edit" data-id="${p.id}"><span class="name">${p.name}</span><span class="muted small">${p.organization || p.source} → Prospects</span></button>`)
             : html`<p class="muted small">Nobody yet. Your first find shows up here.</p>`}
         </section>
         <section class="card stack-sm">
           <h2 class="h3">Found this week</h2>
           ${weekBars()}
-          <p class="small">${month.filter((p) => p.activeLead).length} of ${plural(month.length, 'find')} from the last 30 days became Active leads.</p>
+          <p class="small">${month.filter(isEngaged).length} of ${plural(month.length, 'find')} from the last 30 days are engaged now.</p>
         </section>
         <section class="card stack-sm">
           <h2 class="h3">Companies left to research</h2>
