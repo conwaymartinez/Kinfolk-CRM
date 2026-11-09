@@ -2,7 +2,7 @@
 import { html, icon, rel, plural } from '../ui.js';
 import {
   state, PRESETS, columns, matchesFilters, isWin, isNew, isLate, isEngaged, accounts, industries, lateCount, touchStats,
-  STAGES, STAGE_IDS, ENGAGED, stageLabel, prospectStats, matchesOtherFilters,
+  STAGES, STAGE_IDS, ENGAGED, stageLabel, prospectStats, matchesOtherFilters, isOff, closedStats,
 } from '../store.js';
 
 export const SHEET_COLS = [
@@ -41,7 +41,10 @@ function toolbar() {
     </div>`;
 }
 
-/** Spreadsheet only: the four engaged stages with counts under the other filters; click one to filter. */
+/**
+ * Spreadsheet only: the four engaged stages with counts under the other filters; click one to filter.
+ * Below them, the closed records (Won, Lost), which only show in the spreadsheet when picked here.
+ */
 function stageStrip() {
   const sel = state.ui.stage;
   const count = (id) => state.people.filter((p) => p.stage === id && matchesOtherFilters(p)).length;
@@ -51,7 +54,12 @@ function stageStrip() {
         ${ENGAGED.map((s) => html`<button type="button" class="stage-tile s-${s.id} ${sel === s.id ? 'on' : ''} ${sel && sel !== s.id ? 'dim' : ''}"
           data-action="stage-filter" data-value="${s.id}" aria-pressed="${sel === s.id}">
           <span class="row between"><strong>${s.label}</strong><span class="n">${count(s.id)}</span></span>
-          <span class="small">${s.desc}</span></button>`)}
+          <span class="small">${s.desc} · every ${s.every}</span></button>`)}
+      </div>
+      <div class="records small" role="group" aria-label="Closed records">
+        <span class="muted">Records:</span>
+        ${['won', 'lost'].map((id) => html`<button type="button" class="pill ${sel === id ? 'on' : ''}" data-action="stage-filter" data-value="${id}"
+          aria-pressed="${sel === id}">${stageLabel(id)} · ${count(id)}</button>`)}
       </div>
     </section>`;
 }
@@ -62,12 +70,14 @@ function pipeline() {
   const sel = state.ui.selectedId;
   const filtered = state.ui.search || state.ui.account || state.ui.industry;
   const st = prospectStats();
+  const closed = closedStats(now);
   return html`
-    <p class="muted small">${plural(st.total, 'person', 'people')} waiting in <a href="#/leads">Leads</a>. Drag a card to change its stage.</p>
+    <p class="muted small">${plural(st.total, 'person', 'people')} waiting in <a href="#/leads">Leads</a>.
+      ${closed.wonMonth || closed.lostMonth ? `Last 30 days: ${closed.wonMonth} won, ${closed.lostMonth} lost. ` : ''}Drag a card to change its stage.</p>
     <div class="board" aria-label="Follow-up board">
       ${ENGAGED.map((c) => html`
         <section class="col" data-drop="${c.id}" aria-label="${c.label}">
-          <div class="col-head"><h2><span class="tag stage s-${c.id}">${c.label}</span></h2><span class="muted small">${c.desc} · ${cols[c.id].length}</span></div>
+          <div class="col-head"><h2><span class="tag stage s-${c.id}">${c.label}</span></h2><span class="muted small">${c.desc} · ${c.every} · ${cols[c.id].length}</span></div>
           ${cols[c.id].length ? cols[c.id].map((p) => html`
             <article class="person-card ${sel === p.id ? 'selected' : ''} ${sel && sel !== p.id ? 'dim' : ''}" draggable="true"
               data-card="${p.id}" tabindex="0" aria-label="${p.name}, ${rel(p.followUpAt, now)}">
@@ -84,15 +94,16 @@ function pipeline() {
 }
 
 function sortValue(p, key) {
-  if (key === 'followUpAt') return p.stage === 'unqualified' || !p.followUpAt ? Infinity : new Date(p.followUpAt).getTime();
+  if (key === 'followUpAt') return isOff(p) || !p.followUpAt ? Infinity : new Date(p.followUpAt).getTime();
   if (key === 'stage') return STAGE_IDS.indexOf(p.stage);
   return String(p[key] || '').toLowerCase() || '\uffff';
 }
 
 export function sortedRows() {
   const { key, dir } = state.ui.sort;
-  // The spreadsheet lists the engaged; a search also finds Leads and Unqualified people, so nobody is out of reach.
-  return state.people.filter((p) => (isEngaged(p) || state.ui.search) && matchesFilters(p)).sort((a, b) => {
+  // The spreadsheet lists the engaged; a search also finds Leads, closed and Unqualified people, so nobody is out of
+  // reach, and picking Won or Lost in the stage strip lists those records.
+  return state.people.filter((p) => (isEngaged(p) || state.ui.search || state.ui.stage === p.stage) && matchesFilters(p)).sort((a, b) => {
     const x = sortValue(a, key);
     const y = sortValue(b, key);
     return (x > y ? 1 : x < y ? -1 : a.name.localeCompare(b.name)) * dir;
@@ -100,7 +111,9 @@ export function sortedRows() {
 }
 
 function timeCell(p, now) {
-  if (p.stage === 'unqualified' || !p.followUpAt) return html`<span class="muted small">Not scheduled</span>${p.stage === 'prospect' ? html` <span class="muted small">· Leads</span>` : ''}`;
+  if (p.stage === 'lost') return html`<span class="muted small">Lost${p.lostReason ? ' · ' + p.lostReason : ''}</span>`;
+  if (p.stage === 'won') return html`<span class="muted small">Won ★</span>`;
+  if (isOff(p) || !p.followUpAt) return html`<span class="muted small">Not scheduled</span>${p.stage === 'prospect' ? html` <span class="muted small">· Leads</span>` : ''}`;
   const late = new Date(p.followUpAt).getTime() <= now;
   return html`<span class="timer ${late ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>${p.stage === 'prospect' ? html` <span class="muted small">· Leads</span>` : ''}`;
 }
@@ -135,7 +148,7 @@ function sheet() {
   const { key, dir } = state.ui.sort;
   const filtered = state.ui.search || state.ui.account || state.ui.industry || state.ui.stage;
   return html`
-    ${multi.length > 1 ? bulkBar(multi) : html`<p class="muted small sheet-hint">${state.ui.search ? 'Searching everyone, including Leads and Unqualified. ' : 'Engaged people only; search to find anyone in Leads or Unqualified. '}Shift-click to select a range, ${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'}-click to add one, then edit them together.</p>`}
+    ${multi.length > 1 ? bulkBar(multi) : html`<p class="muted small sheet-hint">${state.ui.search ? 'Searching everyone, including Leads, Won, Lost and Unqualified. ' : 'Engaged people only; search to find anyone, or pick Won / Lost under Records. '}Shift-click to select a range, ${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'}-click to add one, then edit them together.</p>`}
     <div class="sheet-wrap" aria-label="People spreadsheet">
       <table class="sheet">
         <thead><tr>${SHEET_COLS.map((c) => html`<th aria-sort="${c.key === key ? (dir > 0 ? 'ascending' : 'descending') : 'none'}">

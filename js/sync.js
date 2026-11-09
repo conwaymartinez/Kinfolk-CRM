@@ -96,6 +96,7 @@ function apply(data) {
 
   state.sync.v3 = version >= 3;
   state.sync.v6 = version >= 6;
+  state.sync.v7 = version >= 7;
   if (state.sync.v3) {
     const remote = (data.targets || []).map(targetFromSheet).filter((t) => t.id && t.company);
     const local = state.targets.filter((t) => !t.id.startsWith('demo'));

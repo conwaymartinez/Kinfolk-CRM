@@ -2,6 +2,22 @@
 
 Kinfolk is plain HTML, CSS and JavaScript with no build step. GitHub Pages serves this repo as it is.
 
+## Upgrading to v7 (sales stages, Won and Lost)
+
+v7 replaces the AIDA board with the standard B2B sales stages, each with its own follow-up rhythm:
+
+| v6 stage | v7 stage | Means | Follow up every |
+|---|---|---|---|
+| Attention | **Marketing** | Contacted, no active need yet | 1 week |
+| Interest | **Discovery** | Finding out whether there's a need | 1 week |
+| Desire | **Proposal** | Need confirmed; presenting the offer | 48 hours |
+| Action | **Negotiation** | Offer on the table | 24 hours |
+
+- Logging a touch sets the next follow-up by the stage's rhythm; moving someone to a stage pulls their follow-up in to that rhythm if it was further out.
+- **Won** and **Lost** close a deal: off the board, kept as a record (Follow up ▸ Spreadsheet ▸ Records, or search). Lost asks for the reason.
+
+Sheet: paste the new `apps-script/Code.gs`, then Deploy ▸ Manage deployments ▸ pencil icon ▸ Version: **New version**. On the next sync every stage is renamed as in the table above (in `funnel_stage` and `stage_history`), and a `lost_reason` column is added at the end of People. Won and Lost show as "Cold" in the Status column, like Unqualified. Kinfolk already reads the old names, so nothing breaks before you redeploy, but Lost reasons only reach the sheet after it.
+
 ## Upgrading to v6 (Leads, and Unqualified instead of Cold)
 
 - The Sources page is now **Leads**. Its list, **To warm up**, holds everyone not engaged yet: new finds and anyone you send back because they went cold (`P`). Being there means cold, so there's no Cold label.

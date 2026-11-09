@@ -170,8 +170,8 @@ function rowClick(id, e) {
   ui.selectedId = ui.selectedId === id && !wasMulti ? null : id;
 }
 
-/** `U` on a selection: all Unqualified already → back to Attention, else all to Unqualified. */
-const unqualifiedTarget = (ids) => (ids.every((id) => S.byId(id)?.stage === 'unqualified') ? 'attention' : 'unqualified');
+/** `U` on a selection: all Unqualified already → back to Marketing, else all to Unqualified. */
+const unqualifiedTarget = (ids) => (ids.every((id) => S.byId(id)?.stage === 'unqualified') ? S.FIRST_ENGAGED : 'unqualified');
 
 function act(action, el) {
   const id = el?.dataset.id;
@@ -190,7 +190,7 @@ function act(action, el) {
     case 'clear-filters': Object.assign(state.ui, { search: '', account: '', industry: '', stage: '' }); break;
     case 'pool-source': state.ui.pool.source = el.dataset.value; break;
     case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
-    case 'pool-warm': toast(S.setStage(num, 'attention')); break;
+    case 'pool-warm': toast(S.setStage(num, S.FIRST_ENGAGED)); break;
     case 'pool-unqualified': toast(S.setStage(num, 'unqualified')); break;
     case 'stage-filter': state.ui.stage = state.ui.stage === el.dataset.value ? '' : el.dataset.value; break;
     case 'sort': {
@@ -214,7 +214,10 @@ function act(action, el) {
     case 'disconnect': disconnect(); state.ui.modal = null; toast('Disconnected · data stays in this browser'); break;
     case 'pull': pull(); state.ui.modal = null; break;
     // person modal
-    case 'draft-stage': m.draft.stage = el.dataset.value; break;
+    case 'draft-stage':
+      m.draft.stage = el.dataset.value;
+      if (m.draft.stage === 'lost') focusAfter = '#lost-reason';
+      break;
     case 'draft-project': m.draft.project = m.draft.project === el.dataset.value ? '' : el.dataset.value; break;
     case 'win-prefix': {
       const pre = el.dataset.value + ': ';

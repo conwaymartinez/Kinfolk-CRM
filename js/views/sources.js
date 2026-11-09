@@ -38,7 +38,7 @@ function pasteForm(src) {
 }
 
 // Everyone at stage Prospect, newest first. Being here means cold: the only questions are whether you've touched
-// them, whether they've responded (→ Attention, onto Follow up) and whether they're not a fit (Unqualified).
+// them, whether they've responded (→ Marketing, onto Follow up) and whether they're not a fit (Unqualified).
 function prospectsSection() {
   const now = state.now;
   const { source, sort } = state.ui.pool;
@@ -52,7 +52,7 @@ function prospectsSection() {
         <div class="stack-xs grow">
           <h2>To warm up</h2>
           <span class="muted small">${plural(st.total, 'person', 'people')} not engaged yet${st.late ? html` · <span class="late-text">${st.late} late</span>` : ''}${st.today ? ` · ${st.today} due today` : ''}.
-            Touch to reach out (they stay here), → Attention once they respond, Unqualified if they're not a fit.</span>
+            Touch to reach out (they stay here), → Marketing once they respond, Unqualified if they're not a fit.</span>
         </div>
       </div>
       <div class="pool-tools">
@@ -83,7 +83,7 @@ function prospectsSection() {
               <td>${p.followUpAt ? html`<span class="timer ${late ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>` : html`<span class="muted small">Not scheduled</span>`}</td>
               <td class="actions">
                 <button type="button" class="btn sm" data-action="pool-touch" data-id="${p.id}" title="Log a touch; they stay in Leads">Touch</button>
-                <button type="button" class="btn sm primary" data-action="pool-warm" data-id="${p.id}" title="Move to Attention, onto Follow up">→ Attention</button>
+                <button type="button" class="btn sm primary" data-action="pool-warm" data-id="${p.id}" title="Move to Marketing, onto Follow up">→ Marketing</button>
                 <button type="button" class="btn sm ghost" data-action="pool-unqualified" data-id="${p.id}" title="Not a fit, don't revive: off Leads and Follow up">Unqualified</button>
               </td>
             </tr>`;
@@ -113,7 +113,8 @@ export function renderSources() {
       </div>
     </header>
     ${state.sync.config && !state.sync.v3 ? html`<p class="notice">Company lists are saved on this device only until you update <code>Code.gs</code> in your sheet (see SETUP.md).</p>` : ''}
-    ${state.sync.config && state.sync.v3 && !state.sync.v6 ? html`<p class="notice">Your sheet runs an older <code>Code.gs</code>, so stages are worked out from the old Status column on each sync. Update it to v6 (see SETUP.md).</p>` : ''}
+    ${state.sync.config && state.sync.v3 && !state.sync.v6 ? html`<p class="notice">Your sheet runs an older <code>Code.gs</code>, so stages are worked out from the old Status column on each sync. Update it to v7 (see SETUP.md).</p>`
+      : state.sync.config && state.sync.v6 && !state.sync.v7 ? html`<p class="notice">Your sheet runs <code>Code.gs</code> v6: the new stage names sync, but Lost reasons aren't saved to the sheet and old rows keep the Attention…Action names there. Update it to v7 (see SETUP.md).</p>` : ''}
     ${prospectsSection()}
     <h2>Hunting grounds</h2>
     <div class="source-grid" role="list">
