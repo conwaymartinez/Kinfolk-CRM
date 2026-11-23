@@ -13,8 +13,8 @@ There is no build step: native ES modules, plain CSS, no dependencies. GitHub Pa
 | `js/store.js` | State, persistence, sheet mapping, derived data, **every action that changes data** |
 | `js/sync.js` | Sheet transport: outbox, flush, pull, connect/disconnect |
 | `js/ui.js` | `html` tagged template (escapes by default), icons, time helpers |
-| `js/views/*.js` | `today`, `followup` (board + spreadsheet), `sources` (the Leads page), `modals` — pure functions returning HTML |
-| `apps-script/Code.gs` | The sheet bridge (v7) |
+| `js/views/*.js` | `today`, `followup` (board + spreadsheet), `calls`, `sources` (the Leads page), `modals` — pure functions returning HTML |
+| `apps-script/Code.gs` | The sheet bridge (v8) |
 
 Rendering is `root.innerHTML = view()` after every change. Focus and text selection are restored by `id` or `data-bind`.
 
