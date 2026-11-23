@@ -172,8 +172,10 @@ const KEYS = [
   ['Pick someone', [['↑ ↓', 'J K', 'Up and down a column'], ['← →', 'H L', 'Across columns'], ['Esc', '', 'Clear the selection'], ['F', '/', 'Search']]],
   ['Act on them', [['T', '', 'Log a touch'], [']', '[', 'Up / down a stage'], ['P', '', 'Back to Leads (gone cold)'], ['U', '', 'Unqualified on / off'],
     ['1 2 3', '', 'Follow up in 24H / 2 days / 1 week'], ['E', 'Enter', 'Open the full record']]],
+  ['Calls', [['1 2 3 4', '', 'Connected / No answer / Voicemail / Call back'], ['Enter', '', 'Save & next call'], ['S', '', 'Skip for now'],
+    ['↑ ↓', 'J K', 'Pick from the list'], ['X', '', 'Back to Follow up without a call'], ['C', '', 'On Follow up: book a call for the selected card']]],
   ['Prospecting (Today)', [['Enter', '', 'Save prospect'], ['S', '', "Can't find anyone yet"], ['X', '', 'Not a fit'], ['L', '', 'Log a find']]],
-  ['Anywhere', [['G', 'then T F L', 'Go to Today / Follow up / Leads'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
+  ['Anywhere', [['G', 'then T F C L', 'Go to Today / Follow up / Calls / Leads'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
 ];
 
 function keysModal() {

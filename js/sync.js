@@ -1,7 +1,7 @@
 // Google Sheets sync through the Apps Script web app (apps-script/Code.gs).
 // Every change is an op in an outbox; the outbox flushes in batches and survives reloads/offline.
 import {
-  state, setEmitter, load, save, KEYS, fromSheet, targetFromSheet, targetToSheet, SOURCE_IDS, fillMissingSources,
+  state, setEmitter, load, save, KEYS, fromSheet, targetFromSheet, targetToSheet, SOURCE_IDS, fillMissingSources, isEngaged,
 } from './store.js';
 
 const OUTBOX = 'kinfolk-v3-outbox';
@@ -89,7 +89,10 @@ function apply(data) {
   })).filter((t) => t.touch_id);
   const version = Number(data.version) || 0;
   const touched = new Set(touches.map((t) => t.person_id));
+  // Before Code.gs v8 the sheet has no call_at column: keep the call slots made in this browser.
+  const localCalls = new Map(state.people.filter((p) => p.callAt).map((p) => [p.id, p.callAt]));
   state.people = (data.people || []).map((r) => fromSheet(r, { version, touched })).filter((p) => p.id && p.name);
+  if (version < 8) state.people.forEach((p) => { if (localCalls.has(p.id) && isEngaged(p)) p.callAt = localCalls.get(p.id); });
   state.touches = touches;
   if (data.projects?.length) state.projects = data.projects;
   if (data.groups?.length) state.groups = data.groups;
@@ -97,6 +100,7 @@ function apply(data) {
   state.sync.v3 = version >= 3;
   state.sync.v6 = version >= 6;
   state.sync.v7 = version >= 7;
+  state.sync.v8 = version >= 8;
   if (state.sync.v3) {
     const remote = (data.targets || []).map(targetFromSheet).filter((t) => t.id && t.company);
     const local = state.targets.filter((t) => !t.id.startsWith('demo'));

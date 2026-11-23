@@ -1,9 +1,43 @@
 // Follow up: the board (one column per engaged stage) and the spreadsheet of everyone.
-import { html, icon, rel, plural } from '../ui.js';
+import { html, icon, rel, plural, DAY, startOfDay } from '../ui.js';
 import {
   state, PRESETS, columns, matchesFilters, isWin, isNew, isLate, isEngaged, accounts, industries, lateCount, touchStats,
   STAGES, STAGE_IDS, ENGAGED, stageLabel, prospectStats, matchesOtherFilters, isOff, closedStats, SOURCES,
+  SLOTS, slotOpen, inCalls, callLabel, scheduled,
 } from '../store.js';
+
+const shortDay = (t, today) => (t === today ? 'Today' : t === today + DAY ? 'Tomorrow' : `${new Date(t).toLocaleDateString(undefined, { weekday: 'short' })} ${new Date(t).getDate()}`);
+
+/** Book a call from a card: pick a day, then 12 NOON or 5 PM. */
+function schedPanel(p) {
+  const now = state.now;
+  const today = startOfDay(now);
+  const day = state.ui.sched.day ?? today;
+  const days = [0, 1, 2, 3].map((i) => today + i * DAY);
+  const iso = new Date(day - new Date(day).getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  return html`<div class="sched" role="group" aria-label="Book a call with ${p.name}">
+    <div class="row between"><span class="small strong">Book a call</span>
+      <button type="button" class="q-x" data-action="sched-close" aria-label="Close">${icon('close', 14)}</button></div>
+    <div class="day-pick">${days.map((d) => html`<button type="button" class="chip ${d === day ? 'on' : ''}" data-action="sched-day" data-value="${d}">${shortDay(d, today)}</button>`)}
+      <input type="date" data-bind="schedDate" value="${iso}" min="${new Date(today - new Date(today).getTimezoneOffset() * 6e4).toISOString().slice(0, 10)}" aria-label="Another day"></div>
+    <div class="slot-pick">${SLOTS.map((s) => html`<button type="button" class="slot-btn" data-action="sched-slot" data-id="${p.id}" data-value="${s.id}"
+      ${slotOpen(day, s.id, now) ? '' : 'disabled'}>${s.label}</button>`)}</div>
+    <span class="muted small">Leaves the board until the call is logged.</span>
+  </div>`;
+}
+
+/** Day + slot buttons for booking several people at once (board picks or spreadsheet rows). */
+function bulkCall() {
+  const today = startOfDay(state.now);
+  const first = slotOpen(today, 'pm', state.now) ? today : today + DAY;
+  const day = state.ui.sched.bulkDay ?? first;
+  const days = [0, 1, 2, 3, 4, 5, 6].map((i) => today + i * DAY).filter((d) => d >= first);
+  return html`<span class="muted small">Call on</span>
+    <select class="pill-select" data-bind="bulkCallDay" aria-label="Call day">
+      ${days.map((d) => html`<option value="${d}" ${d === day ? 'selected' : ''}>${shortDay(d, today)}</option>`)}
+    </select>
+    ${SLOTS.map((s) => html`<button type="button" class="pill" data-action="bulk-call" data-value="${s.id}" ${slotOpen(day, s.id, state.now) ? '' : 'disabled'}>${s.label}</button>`)}`;
+}
 
 export const SHEET_COLS = [
   { key: 'name', label: 'Name' }, { key: 'stage', label: 'Stage' }, { key: 'project', label: 'Project' },
@@ -63,22 +97,32 @@ function pipeline() {
   const now = state.now;
   const sel = state.ui.selectedId;
   const filtered = state.ui.search || state.ui.account || state.ui.industry;
+  const multi = state.ui.multi;
+  const booked = scheduled().length;
+  const sched = state.ui.sched.id;
   const st = prospectStats();
   const closed = closedStats(now);
   return html`
     <p class="muted small">${plural(st.total, 'person', 'people')} waiting in <a href="#/leads">Leads</a>.
-      ${closed.wonMonth || closed.lostMonth ? `Last 30 days: ${closed.wonMonth} won, ${closed.lostMonth} lost. ` : ''}Click a name to open it; drag a card to change its stage.</p>
+      ${closed.wonMonth || closed.lostMonth ? `Last 30 days: ${closed.wonMonth} won, ${closed.lostMonth} lost. ` : ''}Click a name to open it; drag a card to change its stage; the phone button books a call (⌘/Shift-click to pick several).</p>
+    ${multi.length > 1 ? html`<div class="bulk-bar" role="toolbar" aria-label="${multi.length} picked">
+      <strong>${multi.length} picked</strong><span class="bulk-sep"></span>${bulkCall()}<span class="grow"></span>
+      <button type="button" class="btn sm" data-action="bulk-clear" title="Esc">Clear</button></div>` : ''}
+    ${booked ? html`<div class="away">${icon('phone', 16)}<span class="grow"><strong>${plural(booked, 'person is', 'people are')} in Calls</strong> and off this board until their call is logged.</span><a class="link" href="#/calls">Open Calls →</a></div>` : ''}
     <div class="board" aria-label="Follow-up board">
       ${ENGAGED.map((c) => html`
         <section class="col" data-drop="${c.id}" aria-label="${c.label}">
           <div class="col-head" title="${c.desc}"><h2><span class="dot s-${c.id}"></span>${c.label}<span class="col-n">${cols[c.id].length}</span></h2><span class="tag outline">every ${c.every}</span></div>
           <div class="col-body" data-scroll="${c.id}">
           ${cols[c.id].length ? cols[c.id].map((p) => html`
-            <article class="person-card ${sel === p.id ? 'selected' : ''} ${sel && sel !== p.id ? 'dim' : ''}" draggable="true"
+            <article class="person-card ${sel === p.id ? 'selected' : ''} ${multi.includes(p.id) ? 'picked' : ''} ${sel && sel !== p.id && !multi.length && sched !== p.id ? 'dim' : ''}" draggable="${sched === p.id ? 'false' : 'true'}"
               data-card="${p.id}" tabindex="0" aria-label="${p.name}, ${rel(p.followUpAt, now)}">
               <div class="card-top"><button type="button" class="link name" data-action="edit" data-id="${p.id}" title="Open ${p.name}">${p.name}</button>
                 <span class="timer ${isLate(p, now) ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></div>
-              <div class="card-top"><span class="step ${p.nextStep ? '' : 'muted'}" title="${p.nextStep}">${p.nextStep || 'No next step'}</span>${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}</div>
+              <div class="card-top"><span class="step ${p.nextStep ? '' : 'muted'}" title="${p.nextStep}">${p.nextStep || 'No next step'}</span>
+                <span class="row" style="gap:6px">${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}<button type="button" class="card-call" data-action="sched-open" data-id="${p.id}"
+                  aria-expanded="${sched === p.id}" title="Book a call (C)" aria-label="Book a call with ${p.name}">${icon('phone', 14)}</button></span></div>
+              ${sched === p.id ? schedPanel(p) : ''}
             </article>`) : html`<p class="col-empty">${filtered ? 'No matches here' : 'Nobody here right now'}</p>`}
           </div>
         </section>`)}
@@ -103,6 +147,7 @@ export function sortedRows() {
 }
 
 function timeCell(p, now) {
+  if (inCalls(p)) return html`<a class="in-calls" href="#/calls">${icon('phone', 11)}Call · ${callLabel(p.callAt, now)}</a>`;
   if (p.stage === 'lost') return html`<span class="muted small">Lost${p.lostReason ? ' · ' + p.lostReason : ''}</span>`;
   if (p.stage === 'won') return html`<span class="muted small">Won ★</span>`;
   if (isOff(p) || !p.followUpAt) return html`<span class="muted small">Not scheduled</span>${p.stage === 'prospect' ? html` <span class="muted small">· Leads</span>` : ''}`;
@@ -128,6 +173,8 @@ function bulkBar(ids) {
       <select class="pill-select" data-bind="bulkSource" aria-label="Set source for selected">
         <option value="__">Set source…</option>${SOURCES.map((s) => html`<option value="${s.id}">${s.id}</option>`)}<option value="">No source</option>
       </select>
+      <span class="bulk-sep"></span>
+      ${bulkCall()}
       <span class="grow"></span>
       <button type="button" class="btn sm danger-ghost" data-action="bulk-remove">${state.ui.bulkConfirm ? `Confirm remove ${ids.length}` : 'Remove'}</button>
       <button type="button" class="btn sm" data-action="bulk-clear" title="Esc">Clear</button>

@@ -1,5 +1,5 @@
 // Kinfolk: layout, routing, events and keyboard shortcuts.
-import { html, icon, fromLocalInput, HOUR } from './ui.js';
+import { html, icon, fromLocalInput, HOUR, DAY, startOfDay } from './ui.js';
 import * as S from './store.js';
 import { state } from './store.js';
 import { startSync, connect, disconnect, pull, syncLabel } from './sync.js';
@@ -7,6 +7,7 @@ import { renderToday, emptyFind } from './views/today.js';
 import { renderFollowUp, sortedRows } from './views/followup.js';
 import { renderSources, PAGE } from './views/sources.js';
 import { renderModal } from './views/modals.js';
+import { renderCalls, currentCall, newCallDraft, callDraft } from './views/calls.js';
 
 const root = document.getElementById('root');
 state.ui.find = emptyFind();
@@ -19,6 +20,8 @@ function rail() {
   const cols = S.columns();
   const leads = S.prospectStats().total;
   const closed = S.closedStats(state.now);
+  const book = S.callBook(state.now);
+  const callsLeft = S.callWorkList(state.now).length;
   const item = (id, href, label, ic, extra) => html`
     <a href="${href}" class="rail-item ${r === id ? 'on' : ''}" aria-current="${r === id ? 'page' : 'false'}">
       ${icon(ic, 18)}<span class="rail-label">${label}</span>${extra || ''}</a>`;
@@ -27,6 +30,7 @@ function rail() {
       <a href="#/today" class="ws" aria-label="Kinfolk home"><span class="logo">K</span><span class="ws-text"><strong>Kinfolk</strong><span>Sales CRM</span></span></a>
       ${item('today', '#/today', 'Today', 'today')}
       ${item('follow-up', '#/follow-up', 'Follow up', 'clock', late ? html`<span class="badge" aria-label="${late} late">${late}</span>` : '')}
+      ${item('calls', '#/calls', 'Calls', 'phone', html`${callsLeft ? html`<span class="rail-n" title="Left today">${callsLeft}</span>` : ''}${book.missed.length ? html`<span class="badge" aria-label="${book.missed.length} missed">${book.missed.length}</span>` : ''}`)}
       ${item('sources', '#/leads', 'Leads', 'sources', leads ? html`<span class="rail-n">${leads}</span>` : '')}
       <div class="rail-sec">
         <p class="rail-h">Pipeline</p>
@@ -45,6 +49,7 @@ function rail() {
 function view() {
   if (state.ui.route === 'follow-up') return renderFollowUp();
   if (state.ui.route === 'sources') return renderSources();
+  if (state.ui.route === 'calls') return renderCalls();
   return renderToday();
 }
 
@@ -99,10 +104,12 @@ function route() {
   const h = location.hash.replace(/^#\/?/, '');
   if (h.startsWith('follow-up')) { state.ui.route = 'follow-up'; state.ui.followView = h.endsWith('/sheet') ? 'sheet' : 'pipeline'; }
   else if (h.startsWith('leads') || h.startsWith('sources')) state.ui.route = 'sources';
+  else if (h.startsWith('calls')) state.ui.route = 'calls';
   else state.ui.route = 'today';
   state.ui.selectedId = state.ui.route === 'follow-up' ? state.ui.selectedId : null;
   clearMulti();
   Object.assign(state.ui.pool, { picked: [], anchor: null });
+  state.ui.sched = { id: null, day: null, bulkDay: null };
   render();
   document.getElementById('main')?.scrollTo?.(0, 0);
 }
@@ -215,6 +222,69 @@ function leadRowClick(row, e) {
   pool.anchor = only ? null : id;
 }
 
+// ───────────── calls ─────────────
+const callDraftNow = () => { const p = currentCall(); return p ? callDraft(p) : null; };
+/** The first day that still has a slot open (today until 5 PM ends, else tomorrow). */
+const firstOpenDay = () => (S.slotOpen(Date.now(), 'pm') ? startOfDay(Date.now()) : startOfDay(Date.now()) + DAY);
+/** For "call again": `slotId` on `day` if it hasn't started yet, else the next slot that hasn't. */
+function openSlotAt(day, slotId) {
+  const at = S.slotTime(day, slotId);
+  return new Date(at).getTime() > Date.now() ? at : S.nextSlot(Math.max(Date.now(), day));
+}
+const AGAIN = ['no_answer', 'voicemail', 'call_back'];
+
+/** The rows on the Calls list in screen order (missed, then the day shown), for ↑/↓. */
+function callRows() {
+  const book = S.callBook();
+  const day = book.day(state.ui.calls.day ?? startOfDay(state.now));
+  return [...book.missed, ...day.noon, ...day.pm];
+}
+
+function pickCall(id) {
+  Object.assign(state.ui.calls, { currentId: id, paused: false, draft: null });
+}
+
+function skipCall() {
+  const c = state.ui.calls;
+  const cur = currentCall();
+  if (!cur) return;
+  c.skipped = [...(c.skipped || []).filter((x) => x !== cur.id), cur.id];
+  c.currentId = null;
+  c.draft = null;
+  if (S.callWorkList().every((p) => c.skipped.includes(p.id))) c.skipped = [cur.id];
+  toast(`${cur.name} skipped · still booked ${S.callLabel(cur.callAt).replace(/^(Today|Tomorrow)/, (m) => m.toLowerCase())}`);
+}
+
+function saveCall(stop) {
+  const c = state.ui.calls;
+  const cur = currentCall();
+  const d = c.draft;
+  if (!cur || !d || d.id !== cur.id) return render();
+  if (!d.nextStep.trim()) { d.error = 'Add the next step to log the call.'; focusAfter = '#call-next'; return render(); }
+  const msg = S.logCall(cur.id, { ...d, nextStep: d.nextStep.trim(), callAt: d.after === 'again' ? d.callAt : '', followUpAt: d.followUpAt || '' });
+  Object.assign(c, { draft: null, currentId: null, paused: !!stop, skipped: (c.skipped || []).filter((x) => x !== cur.id) });
+  toast(msg);
+  render();
+}
+
+/** Board cards: ⌘/Ctrl/Shift-click picks several (to book calls together); a plain click selects one. */
+function boardClick(id, e) {
+  const ui = state.ui;
+  if (e.metaKey || e.ctrlKey || e.shiftKey) {
+    const set = new Set(ui.multi.length ? ui.multi : ui.selectedId ? [ui.selectedId] : []);
+    set.has(id) ? set.delete(id) : set.add(id);
+    ui.multi = [...set];
+    ui.selectedId = set.has(id) ? id : ui.multi[ui.multi.length - 1] ?? null;
+    if (ui.multi.length < 2) ui.multi = [];
+    return;
+  }
+  clearMulti();
+  ui.selectedId = ui.selectedId === id ? null : id;
+}
+
+/** Who the bulk "Call on…" applies to: the spreadsheet selection, or the cards picked on the board. */
+const callIds = () => (inSheet() ? picked() : state.ui.multi.filter((id) => S.byId(id)));
+
 /** `U` on a selection: all Unqualified already → back to Marketing, else all to Unqualified. */
 const unqualifiedTarget = (ids) => (ids.every((id) => S.byId(id)?.stage === 'unqualified') ? S.FIRST_ENGAGED : 'unqualified');
 
@@ -288,6 +358,50 @@ function act(action, el) {
       S.removePerson(m.id); toast(`${m.draft.name} removed`); state.ui.modal = null; state.ui.selectedId = null;
       break;
     case 'find-source': m.draft.source = el.dataset.value; break;
+    // Calls page
+    case 'call-day-view': state.ui.calls.day = Number(el.dataset.value); break;
+    case 'call-pick': pickCall(num); break;
+    case 'call-remove':
+      toast(S.unscheduleCall(num));
+      if (state.ui.calls.currentId === num) Object.assign(state.ui.calls, { currentId: null, draft: null });
+      break;
+    case 'call-resume': Object.assign(state.ui.calls, { paused: false, currentId: null, draft: null }); break;
+    case 'call-skip': skipCall(); break;
+    case 'call-save-stop': saveCall(true); return;
+    case 'call-outcome': { const d = callDraftNow(); if (!d) break; d.outcome = el.dataset.value; d.after = AGAIN.includes(d.outcome) ? 'again' : 'followup'; break; }
+    case 'call-project': { const d = callDraftNow(); if (d) d.project = d.project === el.dataset.value ? '' : el.dataset.value; break; }
+    case 'call-prefix': {
+      const d = callDraftNow();
+      if (d) { d.nextStep = el.dataset.value + ': ' + d.nextStep.replace(/^\s*(SV|IP)\s*:\s*/i, ''); focusAfter = '#call-next'; }
+      break;
+    }
+    case 'call-stage': { const d = callDraftNow(); if (!d) break; d.stage = el.dataset.value; if (d.stage === 'lost') focusAfter = '#call-lost'; break; }
+    case 'call-after': { const d = callDraftNow(); if (d) d.after = el.dataset.value; break; }
+    case 'call-preset': {
+      const d = callDraftNow();
+      const p = S.PRESETS.find((x) => x.id === el.dataset.value);
+      if (d && p) { d.preset = p.id; d.followUpAt = new Date(Date.now() + p.hours * HOUR).toISOString(); }
+      break;
+    }
+    case 'call-again-day': { const d = callDraftNow(); if (d) d.callAt = openSlotAt(Number(el.dataset.value), S.slotOf(d.callAt).id); break; }
+    case 'call-again-slot': { const d = callDraftNow(); if (d) d.callAt = openSlotAt(startOfDay(new Date(d.callAt).getTime()), el.dataset.value); break; }
+    // Follow up: booking a call from a card or a selection
+    case 'sched-open': state.ui.sched = { ...state.ui.sched, id: state.ui.sched.id === num ? null : num, day: firstOpenDay() }; break;
+    case 'sched-day': state.ui.sched.day = Number(el.dataset.value); break;
+    case 'sched-close': state.ui.sched.id = null; break;
+    case 'sched-slot':
+      toast(S.scheduleCall([num], S.slotTime(state.ui.sched.day ?? firstOpenDay(), el.dataset.value)));
+      state.ui.sched.id = null;
+      if (state.ui.selectedId === num) state.ui.selectedId = null;
+      break;
+    case 'bulk-call': {
+      const ids = callIds();
+      if (!ids.length) break;
+      toast(S.scheduleCall(ids, S.slotTime(state.ui.sched.bulkDay ?? firstOpenDay(), el.dataset.value)));
+      clearMulti();
+      state.ui.selectedId = null;
+      break;
+    }
     case 'find-project': m.draft.project = m.draft.project === el.dataset.value ? '' : el.dataset.value; break;
     default: return;
   }
@@ -309,6 +423,27 @@ function onBind(el, final) {
   if (b === 'personSource') { toast(S.setSource(Number(el.dataset.id), val)); return render(); }
   if (b === 'leadSearch') { Object.assign(state.ui.pool, { search: val, limit: PAGE }); return render(); }
   if (b === 'sortKey') { state.ui.sort = { key: val, dir: 1 }; return render(); }
+  if (b === 'bulkCallDay') { state.ui.sched.bulkDay = Number(val); return render(); }
+  if (b === 'schedDate') {
+    if (!final || !val) return;
+    const [y, mo, da] = val.split('-').map(Number);
+    state.ui.sched.day = new Date(y, mo - 1, da).getTime();
+    return render();
+  }
+  if (scope === 'call') {
+    const d = callDraftNow();
+    if (!d) return;
+    if (field === 'followUpAt') { d.followUpAt = fromLocalInput(val) || d.followUpAt; d.preset = null; if (final) render(); return; }
+    if (field === 'againDate') {
+      if (!final || !val) return;
+      const [y, mo, da] = val.split('-').map(Number);
+      d.callAt = openSlotAt(new Date(y, mo - 1, da).getTime(), S.slotOf(d.callAt).id);
+      return render();
+    }
+    d[field] = val;
+    if (d.error) { d.error = ''; render(); }
+    return;
+  }
   if (scope === 'today') { state.ui.today[field] = val; return render(); }
   if (scope === 'find') { state.ui.find[field] = val; if (state.ui.find.error) { state.ui.find.error = ''; render(); } return; }
   if (scope === 'paste') { state.ui.paste[field] = val; return; }
@@ -364,6 +499,7 @@ async function onSubmit(form) {
     toast(msg);
     return render();
   }
+  if (kind === 'call') return saveCall(false);
   if (kind === 'goal') {
     const v = Number(new FormData(form).get('goal'));
     if (v > 0) state.goal = Math.round(v);
@@ -400,17 +536,19 @@ root.addEventListener('click', (e) => {
   if (el) { e.preventDefault(); act(el.dataset.action, el); return; }
   const lead = e.target.closest('[data-lead-row]');
   if (lead && !e.target.closest('select, input, button, a')) { leadRowClick(lead, e); render(); return; }
+  if (e.target.closest('.sched')) return; // the booking panel inside a card
   const card = e.target.closest('[data-card], [data-row]');
   if (card) {
     const id = Number(card.dataset.card || card.dataset.row);
     if (card.dataset.row) rowClick(id, e);
-    else state.ui.selectedId = state.ui.selectedId === id ? null : id;
+    else boardClick(id, e);
     render();
   }
 });
 // Shift-click on a row selects a range; stop the browser from also selecting the text in between.
-root.addEventListener('mousedown', (e) => { if ((e.shiftKey || e.metaKey || e.ctrlKey) && e.target.closest('[data-row], [data-lead-row]')) e.preventDefault(); });
+root.addEventListener('mousedown', (e) => { if ((e.shiftKey || e.metaKey || e.ctrlKey) && e.target.closest('[data-row], [data-lead-row], [data-card]')) e.preventDefault(); });
 root.addEventListener('dblclick', (e) => {
+  if (e.target.closest('.sched')) return;
   const card = e.target.closest('[data-card], [data-row]');
   if (card) openPerson(Number(card.dataset.card || card.dataset.row));
 });
@@ -494,6 +632,7 @@ document.addEventListener('keydown', (e) => {
     gPending = 0;
     if (k === 't') return go('#/today');
     if (k === 'f') return go('#/follow-up');
+    if (k === 'c') return go('#/calls');
     if (k === 'l' || k === 's') return go('#/leads');
   }
   if (k === 'g') { gPending = Date.now(); return; }
@@ -512,8 +651,28 @@ document.addEventListener('keydown', (e) => {
     if (k === 'Escape' && state.ui.pool.picked.length) { Object.assign(state.ui.pool, { picked: [], anchor: null }); return render(); }
     return;
   }
+  if (state.ui.route === 'calls') {
+    const cur = currentCall();
+    const o = S.OUTCOMES.find((x) => x.key === k);
+    if (o && cur) return act('call-outcome', { dataset: { value: o.id } });
+    if (k === 's' && cur) { skipCall(); return render(); }
+    if (k === 'x' && cur) return act('call-remove', { dataset: { id: String(cur.id) } });
+    if (k === 'e' && cur) { e.preventDefault(); return openPerson(cur.id); }
+    if (k === 'Enter' && cur && tag !== 'BUTTON' && tag !== 'A') { e.preventDefault(); return saveCall(false); }
+    const dy = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[k];
+    if (dy) {
+      e.preventDefault();
+      const rows = callRows();
+      if (!rows.length) return;
+      const i = cur ? rows.findIndex((p) => p.id === cur.id) : -1;
+      pickCall(rows[Math.min(rows.length - 1, Math.max(0, i + dy))].id);
+      return render();
+    }
+    return;
+  }
   if (state.ui.route !== 'follow-up') return;
   if (k === 'f' || k === '/') { e.preventDefault(); focusAfter = '#search'; return render(); }
+  if (k === 'c' && state.ui.selectedId && state.ui.followView === 'pipeline') return act('sched-open', { dataset: { id: String(state.ui.selectedId) } });
   const sel = state.ui.selectedId;
   const step = { ArrowDown: [0, 1], j: [0, 1], ArrowUp: [0, -1], k: [0, -1], ArrowRight: [1, 0], l: [1, 0], ArrowLeft: [-1, 0], h: [-1, 0] }[k];
   if (step && e.shiftKey && inSheet() && step[1]) {
@@ -536,7 +695,7 @@ document.addEventListener('keydown', (e) => {
     root.querySelector(`[data-card="${next}"], [data-row="${next}"]`)?.scrollIntoView({ block: 'nearest' });
     return;
   }
-  if (k === 'Escape') { state.ui.selectedId = null; clearMulti(); return render(); }
+  if (k === 'Escape') { state.ui.selectedId = null; state.ui.sched.id = null; clearMulti(); return render(); }
   const ids = picked();
   if (ids.length > 1) {
     if (k === 'u') { toast(S.bulkStage(ids, unqualifiedTarget(ids))); return render(); }
