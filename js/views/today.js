@@ -1,7 +1,7 @@
 // Today: follow-ups first, then a prospecting session that rewards finding people.
 import { html, rel, plural, DAY, startOfDay, startOfWeek } from '../ui.js';
 import {
-  state, isEngaged, isLate, touchStats, queue, findsBetween, SOURCES, SOURCE_IDS,
+  state, isEngaged, isLate, touchStats, queue, findsBetween, SOURCES, SOURCE_IDS, inCalls, callWorkList, callBook,
 } from '../store.js';
 
 export const emptyFind = () => ({ name: '', role: '', email: '', phone: '', why: '', error: '' });
@@ -9,7 +9,9 @@ export const emptyFind = () => ({ name: '', role: '', email: '', phone: '', why:
 function dueStrip() {
   const now = state.now;
   const endOfDay = startOfDay(now) + DAY;
-  const pipe = state.people.filter(isEngaged);
+  const pipe = state.people.filter((p) => isEngaged(p) && !inCalls(p));
+  const calls = callWorkList(now).length;
+  const missed = callBook(now).missed.length;
   const late = pipe.filter((p) => isLate(p, now));
   const today = pipe.filter((p) => !isLate(p, now) && new Date(p.followUpAt).getTime() < endOfDay);
   const list = [...late, ...today].sort((a, b) => new Date(a.followUpAt) - new Date(b.followUpAt)).slice(0, 3);
@@ -26,7 +28,10 @@ function dueStrip() {
             <span class="timer ${isLate(p, now) ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></span>
           <span class="muted small">${p.nextStep || 'No next step'}</span>
         </button>`)}
-      <a class="link" href="#/follow-up">Open Follow up →</a>
+      <span class="stack-xs">
+        <a class="link" href="#/follow-up">Open Follow up →</a>
+        ${calls ? html`<a class="link small" href="#/calls">${calls} ${calls === 1 ? 'call' : 'calls'} today${missed ? ` · ${missed} missed` : ''} →</a>` : ''}
+      </span>
     </section>`;
 }
 

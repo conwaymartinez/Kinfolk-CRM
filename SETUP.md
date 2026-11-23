@@ -2,6 +2,17 @@
 
 Kinfolk is plain HTML, CSS and JavaScript with no build step. GitHub Pages serves this repo as it is.
 
+## Upgrading to v8 (Calls)
+
+v8 adds a **Calls** page (sidebar, between Follow up and Leads; `G` then `C`):
+
+- On Follow up, the phone button on a card (or `C` on the selected card) books a call: pick a day, then **12 NOON** or **5 PM**. ⌘/Shift-click several cards, or select spreadsheet rows, to book them together.
+- A booked person leaves the Follow up board (and the Late count) until the call is logged. The spreadsheet shows them as "Call · Tomorrow, 12 NOON".
+- Calls lists them by day, then by slot. A call whose slot has ended without being logged moves to **Missed** (red badge in the sidebar).
+- Logging a call records a touch (today · next step · project), can change the stage, and either sends them back to Follow up (24H / N2D / N1W, or the stage rhythm) or books the next call. Won and Lost end it.
+
+Sheet: paste the new `apps-script/Code.gs`, then Deploy ▸ Manage deployments ▸ pencil icon ▸ Version: **New version**. A `call_at` column is added at the end of People. Until you redeploy, call bookings are kept in this browser only (they survive syncs but don't reach the sheet or your other devices).
+
 ## Upgrading to v7 (sales stages, Won and Lost)
 
 v7 replaces the AIDA board with the standard B2B sales stages, each with its own follow-up rhythm:

@@ -70,6 +70,8 @@ export const isOff = (p) => OFF_IDS.includes(p.stage);
 const cadence = (stage) => STAGES.find((s) => s.id === stage)?.cadence ?? 0;
 const inCadence = (stage, now = Date.now()) => new Date(now + cadence(stage) * HOUR).toISOString();
 export const isLate = (p, now = state.now) => isEngaged(p) && new Date(p.followUpAt).getTime() <= now;
+/** Scheduled for a call (Calls page): off the Follow up board until the call is logged. */
+export const inCalls = (p) => !!p.callAt && isEngaged(p);
 /** No follow-up date, or one that has passed. */
 const dueBy = (p, now = Date.now()) => !p.followUpAt || new Date(p.followUpAt).getTime() <= now;
 
@@ -151,7 +153,7 @@ export function blankPerson(over = {}) {
     id: 0, name: '', organization: '', role: '', industry: '', project: '', email: '', phone: '', source: '',
     nextStep: '', followUpAt: new Date(Date.now() + DAY).toISOString(), stage: 'marketing', lostReason: '',
     reportsToId: null, strength: 1, createdAt: new Date().toISOString(), foundAt: '',
-    stageHistory: [], headline: '', notes: '', ...over,
+    stageHistory: [], headline: '', notes: '', callAt: '', ...over,
   };
 }
 
@@ -216,8 +218,10 @@ export const state = {
     pool: { tab: 'warm', source: '', sort: 'new', search: '', limit: 25, picked: [], anchor: null },
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
+    calls: { day: null, currentId: null, draft: null, done: load('kinfolk-v3-calls-done', []).filter((d) => d.at > Date.now() - 2 * DAY) },
+    sched: { id: null, day: null },
   },
-  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false, v6: false, v7: false },
+  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false, v6: false, v7: false, v8: false },
 };
 
 let emit = () => {};
@@ -227,6 +231,7 @@ export function persist() {
   save(K.people, state.people);
   save(K.touches, state.touches);
   save(K.targets, state.targets);
+  save('kinfolk-v3-calls-done', state.ui.calls.done);
   save(K.meta, { projects: state.projects, groups: state.groups, sourceNotes: state.sourceNotes, goal: state.goal, sourceFilled: state.sourceFilled });
 }
 
@@ -238,7 +243,7 @@ export function toSheet(p) {
     next_step: p.nextStep, project: p.project, organization: p.organization, role: p.role, industry: p.industry,
     reports_to_id: p.reportsToId ?? '', strength: p.strength, email: p.email, phone: p.phone, source: p.source,
     found_at: p.foundAt || '', created_at: p.createdAt,
-    funnel_stage: p.stage, stage_history: JSON.stringify(p.stageHistory || []),
+    funnel_stage: p.stage, stage_history: JSON.stringify(p.stageHistory || []), call_at: p.callAt || '',
   };
 }
 
@@ -277,6 +282,7 @@ export function fromSheet(r, { version = 5, touched = new Set() } = {}) {
     reportsToId: num(r.reports_to_id), strength: Math.min(3, Math.max(1, Number(r.strength) || 1)),
     createdAt: created, foundAt: r.found_at ? String(r.found_at) : '',
     headline: String(r.headline ?? ''), notes: String(r.notes ?? ''), stageHistory: history,
+    callAt: r.call_at && ENGAGED_IDS.includes(stage) ? String(r.call_at) : '',
   });
 }
 
@@ -313,13 +319,13 @@ export function matchesOtherFilters(p) {
 /** The Follow up board: one column per engaged stage, soonest follow-up first (late ones lead). */
 export function columns() {
   const cols = Object.fromEntries(ENGAGED_IDS.map((id) => [id, []]));
-  state.people.forEach((p) => { if (cols[p.stage] && matchesOtherFilters(p)) cols[p.stage].push(p); });
+  state.people.forEach((p) => { if (cols[p.stage] && !inCalls(p) && matchesOtherFilters(p)) cols[p.stage].push(p); });
   const t = (p) => new Date(p.followUpAt).getTime();
   Object.values(cols).forEach((c) => c.sort((a, b) => t(a) - t(b)));
   return cols;
 }
 
-export const lateCount = () => state.people.filter((p) => isLate(p)).length;
+export const lateCount = () => state.people.filter((p) => isLate(p) && !inCalls(p)).length;
 
 /** Closed deals, kept as a record: counts overall and in the last 30 days (by when they reached the stage). */
 export function closedStats(now = state.now) {
@@ -434,6 +440,7 @@ export function savePerson(draft, original, { touch }) {
     if (touch) d.followUpAt = inCadence(d.stage, now);
     else if (moved) d.followUpAt = capped(d, d.stage, now);
   } else if (touch && unchanged && !isOff(d) && dueBy(d, now)) d.followUpAt = tomorrow();
+  if (!isEngaged(d)) d.callAt = '';
   let p;
   if (original) {
     p = patchPerson(original.id, d);
@@ -465,6 +472,7 @@ export function setStage(id, stage) {
   const p = byId(id);
   if (!p || p.stage === stage || !STAGE_IDS.includes(stage)) return '';
   const patch = { stage };
+  if (!ENGAGED_IDS.includes(stage) && p.callAt) patch.callAt = ''; // off the board → out of Calls too
   const joins = !isEngaged(p) && ENGAGED_IDS.includes(stage);
   if (ENGAGED_IDS.includes(stage)) {
     const at = capped(p, stage);
@@ -664,4 +672,106 @@ export function bulkSet(ids, field, value) {
 export function bulkRemove(ids) {
   ids.forEach((id) => removePerson(id));
   return `${names(ids.length)} removed`;
+}
+
+// ───────────── calls: two slots a day, 12 NOON and 5 PM ─────────────
+// Scheduling a call sets `callAt` (the slot's start). Until the call is logged the person is off the Follow up
+// board and out of the Late count, and shows on the Calls page instead.
+export const SLOTS = [
+  { id: 'noon', label: '12 NOON', hour: 12, until: 17 },
+  { id: 'pm', label: '5 PM', hour: 17, until: 24 },
+];
+export const slotOf = (iso) => (new Date(iso).getHours() >= SLOTS[1].hour ? SLOTS[1] : SLOTS[0]);
+const atHour = (t, h) => { const d = new Date(t); d.setHours(h, 0, 0, 0); return d.getTime(); };
+/** The slot's start on that day, as stored. */
+export const slotTime = (day, slotId) => new Date(atHour(day, SLOTS.find((s) => s.id === slotId).hour)).toISOString();
+/** A slot can still be booked until the next one starts (12 NOON until 5 PM, 5 PM until midnight). */
+export const slotOpen = (day, slotId, now = Date.now()) => atHour(day, SLOTS.find((s) => s.id === slotId).until) > now;
+/** Missed: the slot ended and the call wasn't logged. */
+export const callMissed = (p, now = state.now) => atHour(p.callAt, slotOf(p.callAt).until) <= now;
+
+/** The first slot that starts after `now` (for "call again"). */
+export function nextSlot(now = Date.now()) {
+  for (let d = startOfDay(now); ; d += DAY) {
+    const s = SLOTS.find((x) => atHour(d, x.hour) > now);
+    if (s) return slotTime(d, s.id);
+  }
+}
+
+/** "Today, 12 NOON", "Tomorrow, 5 PM", "Wed 25 Nov, 5 PM". */
+export function callLabel(iso, now = state.now) {
+  const day = startOfDay(new Date(iso).getTime());
+  const today = startOfDay(now);
+  const d = day === today ? 'Today' : day === today + DAY ? 'Tomorrow'
+    : new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  return `${d}, ${slotOf(iso).label}`;
+}
+
+const callSort = (a, b) => new Date(a.callAt) - new Date(b.callAt) || a.name.localeCompare(b.name);
+export const scheduled = () => state.people.filter(inCalls).sort(callSort);
+
+/** Calls grouped: missed ones, then per day (start-of-day ms) the 12 NOON and 5 PM lists. */
+export function callBook(now = state.now) {
+  const all = scheduled();
+  const missed = all.filter((p) => callMissed(p, now));
+  const open = all.filter((p) => !callMissed(p, now));
+  const day = (t) => {
+    const list = open.filter((p) => startOfDay(new Date(p.callAt).getTime()) === t);
+    return Object.fromEntries(SLOTS.map((s) => [s.id, list.filter((p) => slotOf(p.callAt).id === s.id)]));
+  };
+  return { all, missed, open, day };
+}
+
+/** Who to call now, in order: missed first, then today's 12 NOON and 5 PM lists. */
+export function callWorkList(now = state.now) {
+  const { missed, day } = callBook(now);
+  const today = day(startOfDay(now));
+  return [...missed, ...today.noon, ...today.pm];
+}
+
+/** Today's calls already logged (for the "done" lines). */
+export const callsDoneToday = (now = state.now) => state.ui.calls.done.filter((d) => d.at >= startOfDay(now));
+
+/** Schedule one or more people for a slot. Only people on the board (engaged) can be called. */
+export function scheduleCall(ids, iso) {
+  const done = ids.filter((id) => { const p = byId(id); return p && isEngaged(p) && patchPerson(id, { callAt: iso }); });
+  if (!done.length) return 'Only people on the Follow up board can be scheduled';
+  const who = done.length === 1 ? byId(done[0]).name : plural(done.length, 'person', 'people');
+  return `${who} · call ${callLabel(iso).replace(/^(Today|Tomorrow)/, (m) => m.toLowerCase())} · off the board until then`;
+}
+
+/** Back to the board without a call. */
+export function unscheduleCall(id) {
+  const p = byId(id);
+  if (!p || !p.callAt) return '';
+  patchPerson(id, { callAt: '' });
+  return `${p.name} is back on Follow up`;
+}
+
+export const OUTCOMES = [
+  { id: 'connected', label: 'Connected', key: '1' },
+  { id: 'no_answer', label: 'No answer', key: '2' },
+  { id: 'voicemail', label: 'Voicemail', key: '3' },
+  { id: 'call_back', label: 'Call back', key: '4' },
+];
+
+/**
+ * Log a call: a touch (today · next step · project), the stage, and where they go next:
+ * `after: 'followup'` → back on the board (follow-up by preset/date, else the stage's rhythm);
+ * `after: 'again'` → stays in Calls at `callAt`. Won, Lost and Unqualified always leave Calls.
+ */
+export function logCall(id, c) {
+  const p = byId(id);
+  if (!p) return '';
+  const outcome = OUTCOMES.find((o) => o.id === c.outcome)?.label || 'Called';
+  const closing = OFF_IDS.includes(c.stage);
+  const again = !closing && c.after === 'again' && c.callAt;
+  const draft = { ...p, nextStep: c.nextStep, project: c.project, stage: closing ? p.stage : c.stage, callAt: again ? c.callAt : '' };
+  if (c.followUpAt) draft.followUpAt = c.followUpAt;
+  savePerson(draft, { ...p }, { touch: true });
+  if (closing) patchPerson(id, { stage: c.stage, lostReason: c.stage === 'lost' ? (c.lostReason || '').trim() : p.lostReason });
+  state.ui.calls.done.push({ id, name: p.name, outcome, at: Date.now(), where: closing ? stageLabel(c.stage) : again ? callLabel(c.callAt) : 'Follow up' });
+  if (closing) return `${p.name} · ${outcome} · ${stageLabel(c.stage)}${c.stage === 'won' ? ' ★' : ''}`;
+  if (again) return `${p.name} · ${outcome} · call again ${callLabel(c.callAt).replace(/^(Today|Tomorrow)/, (m) => m.toLowerCase())}`;
+  return `${p.name} · ${outcome} · back on Follow up (${stageLabel(byId(id).stage)})`;
 }

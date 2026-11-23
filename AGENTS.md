@@ -26,7 +26,7 @@ Keep it small. Prefer extending these patterns over adding a framework or a depe
 
 ## Product model
 
-There are three pages, in a daily loop: **Today → Follow up → Leads**. Each page shows only what's needed to act there.
+There are four pages, in a daily loop: **Today → Follow up → Calls → Leads**. Each page shows only what's needed to act there.
 
 **Today** is the home page.
 1. A "Follow-ups first" strip shows people who are late or due today.
@@ -47,6 +47,13 @@ There are three pages, in a daily loop: **Today → Follow up → Leads**. Each 
   - Multi-select: Shift-click selects a range from the selected row, Cmd/Ctrl-click adds or removes one row, `Shift`+`↑`/`↓` extends. With 2+ selected, a bulk bar sets the stage, follow-up 24H/2D/1W, project and source, or removes them (two clicks). Bulk actions only touch rows that are visible under the current filters. Selection clears on page or view change.
 
 Filters: search, account, industry (focus industries come first). Cards and rows carry a stage tag.
+
+**Calls** (route `#/calls`, `views/calls.js`): people booked for a phone call. There are only two slots a day, **12 NOON** and **5 PM** (`SLOTS` in store.js).
+- Booking sets `callAt` (the slot's start, ISO). From the board: the phone button on a card (or `C`) opens a day + slot picker inside the card (`state.ui.sched`); ⌘/Ctrl/Shift-click picks several cards and the bulk bar books them; the spreadsheet's bulk bar does the same. Only engaged people can be booked. A slot can be booked until the next one starts (12 NOON until 5 PM, 5 PM until midnight).
+- While `callAt` is set (`inCalls`), the person is **off the Follow up board and out of the Late count** and Today's follow-ups strip. The spreadsheet still lists them, with "Call · <slot>" in the Follow-up cell.
+- The page: a day strip (today + 4 days, plus later days with calls), then for the chosen day the 12 NOON and 5 PM lists. A call whose slot ended unlogged is **Missed** (`callMissed`), listed first, with a red count in the sidebar. The card on the right is the current call (`currentCall`: picked, else the first of missed + today's lists not skipped) with a `tel:` button from `phone`, next step, last touches, notes, and the log form.
+- Logging (`logCall`) records a touch (needs a next step), applies the stage (Won/Lost close it, with a reason for Lost), then either **Back to Follow up** (`callAt` cleared; follow-up from a preset/date, else the stage rhythm) or **Call again** (new day + slot; the default after No answer, Voicemail or Call back). ✕ on a row (`X`) sends someone back to Follow up without a call. Logged calls today are listed under "Done today" (`kinfolk-v3-calls-done`, kept two days).
+- Sheet column `call_at` (Code.gs v8). With an older Code.gs, bookings stay in the browser: `apply()` in sync.js keeps local `callAt` across pulls.
 
 **Leads** (route `#/leads`; `#/sources` still works; the view lives in `views/sources.js`) has three tabs (`state.ui.pool.tab`: `warm` | `unq` | `grounds`, with counts): **To warm up**, **Unqualified**, and **Hunting grounds** (the five fixed sources: **Events, Manning, Search, Social, Association**). To warm up and Unqualified are compact one-line tables showing 25 rows at a time (`PAGE`, `state.ui.pool.limit`; Show more / Show all; reset on tab, source or search change), with source chips (counts for that tab; each chip takes a dragged name).
 - A **search bar** at the top (`state.ui.pool.search`, separate from Follow up's search) filters To warm up (name, organization, role, project, industry, source, next step, email, phone) and the selected source's companies and logged finds (company, industry, note, list, project, person found). While searching, the tabs show match counts, each source card shows its match count, and the source panel links to other sources that match.
@@ -128,7 +135,8 @@ A touch is append-only: `{touch_id, date, person_id, person, next_step, project}
 
 Shortcuts are ignored while typing, while a modal is open (except `Esc`), or when a modifier key is held.
 
-- **Anywhere:** `G` then `T`/`F`/`L` switches page (`S` still goes to Leads), `N`/`Q` adds a person, `?` shows the help.
+- **Calls:** `1`–`4` outcome (Connected, No answer, Voicemail, Call back), `Enter` save & next, `S` skip, `↑`/`↓` or `J`/`K` pick from the list, `X` back to Follow up, `E` open the record. On Follow up, `C` books a call for the selected card.
+- **Anywhere:** `G` then `T`/`F`/`C`/`L` switches page (`S` still goes to Leads), `N`/`Q` adds a person, `?` shows the help.
 - **Today:** `S` skips, `X` marks not a fit, `L` logs a find, `Enter` saves.
 - **Leads:** `F` or `/` jumps to search.
 - **Follow up:**
@@ -173,6 +181,7 @@ Sheet columns:
 
 ## Invariants
 
+- A booked call (`callAt`) hides someone from the Follow up board and the Late count; only engaged people can have one, and Won/Lost/Unqualified clear it.
 - Stage is the only marker. Late and Win are derived. Prospects, Won, Lost and Unqualified people never enter the board or the Late count. Won and Lost show only under Records and in search; Unqualified only in Leads › Unqualified and in search.
 - Finds count toward the daily goal. A touch does not.
 - A touch is always date + next step + project.

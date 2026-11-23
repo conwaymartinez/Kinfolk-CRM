@@ -1,5 +1,5 @@
 /**
- * Kinfolk ⇄ Google Sheets bridge — v7 (sales stages: Marketing, Discovery, Proposal, Negotiation; Won and Lost).
+ * Kinfolk ⇄ Google Sheets bridge — v8 (Calls: a 12 NOON / 5 PM call slot per person).
  *
  * Paste this whole file into Extensions ▸ Apps Script of the Kinfolk Database sheet,
  * run `setup` once, then Deploy ▸ New deployment ▸ Web app
@@ -33,9 +33,13 @@
  *    A v6 sheet is updated once: attention → marketing, interest → discovery, desire → proposal, action → negotiation,
  *    in funnel_stage and stage_history.
  *  - New record-only stages Won and Lost (off the board; Status "Cold", like Unqualified). New column `lost_reason`.
+ *
+ * What changed in v8:
+ *  - New column `call_at` (added at the end of People): the booked call slot (12 NOON or 5 PM on a day), blank when
+ *    the person isn't in Calls. Someone with a call booked is off the Follow up board until the call is logged.
  */
 
-const VERSION = 7;
+const VERSION = 8;
 const STAGES_PROP = 'KINFOLK_STAGES_V5';
 const UNQUALIFIED_PROP = 'KINFOLK_STAGES_V6';
 const SALES_PROP = 'KINFOLK_STAGES_V7';
@@ -53,11 +57,11 @@ const SOURCES = 'Sources';
 const PEOPLE_FIELDS = ['id', 'name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role',
   'industry', 'industry_check', 'reports_to_id', 'strength', 'created_at', 'updated_at', 'headline', 'geography',
   'email', 'phone', 'source', 'active_lead', 'found_at', 'how_i_know', 'notes', 'legacy_id', 'funnel_stage', 'stage_history',
-  'lost_reason'];
+  'lost_reason', 'call_at'];
 // Fields Kinfolk may change. Everything else (headline, notes, geography…) is sheet-owned.
 const WRITABLE = ['name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role', 'industry',
   'industry_check', 'reports_to_id', 'strength', 'created_at', 'email', 'phone', 'source', 'found_at',
-  'funnel_stage', 'stage_history', 'lost_reason'];
+  'funnel_stage', 'stage_history', 'lost_reason', 'call_at'];
 // Only written when Kinfolk creates the person.
 const ON_CREATE = ['id', 'headline', 'notes'];
 const TOUCH_FIELDS = ['touch_id', 'date', 'person_id', 'person', 'next_step', 'project'];
@@ -65,7 +69,7 @@ const TARGET_FIELDS = ['target_id', 'company', 'industry', 'hint', 'source', 'li
   'skipped_at', 'created_at', 'updated_at'];
 const SOURCE_FIELDS = ['source', 'where'];
 const SOURCE_NAMES = ['Events', 'Manning', 'Search', 'Social', 'Association'];
-const DATE_FIELDS = ['follow_up_at', 'created_at', 'updated_at', 'date', 'found_at', 'skipped_at'];
+const DATE_FIELDS = ['follow_up_at', 'created_at', 'updated_at', 'date', 'found_at', 'skipped_at', 'call_at'];
 
 // ───────────────────────────── menu ─────────────────────────────
 
