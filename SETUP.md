@@ -2,6 +2,15 @@
 
 Kinfolk is plain HTML, CSS and JavaScript with no build step. GitHub Pages serves this repo as it is.
 
+## Upgrading to v9 (sorted by action: Marketing and Gifts)
+
+The sidebar is now **Follow up · Calls · Marketing · Gifts · Leads** (`G` then `F` / `C` / `M` / `G` / `L`). Follow up is home; the Today page is gone and its research queue lives in **Leads › Research**. Grey numbers in the sidebar are what's waiting today, red badges what's overdue.
+
+- **Marketing**: everyone at stage Marketing (off the Follow up board, never Late), plus Won clients you tick "Keep sending updates" for. Pick who got this week's update (or "Pick all due"), optionally note what you sent, press **Sent update**: each gets a touch and comes back in a week.
+- **Gifts**: add someone with an occasion and a date (Christmas by default), or select rows in Follow up › Spreadsheet and press "Christmas gift". Move each through To buy → Ready → Given; Given logs a touch. A gift doesn't move anyone; their card shows a gift tag.
+
+Sheet: paste the new `apps-script/Code.gs`, then Deploy ▸ Manage deployments ▸ pencil icon ▸ Version: **New version**. Columns `keep_updated`, `gift_occasion`, `gift_due` and `gift_status` are added at the end of People. Until you redeploy, gifts and "keep updated" are kept in this browser only.
+
 ## Upgrading to v8 (Calls)
 
 v8 adds a **Calls** page (sidebar, between Follow up and Leads; `G` then `C`):

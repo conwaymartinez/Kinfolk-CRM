@@ -69,7 +69,11 @@ export const isOff = (p) => OFF_IDS.includes(p.stage);
 /** The stage's follow-up rhythm in hours (engaged stages only). */
 const cadence = (stage) => STAGES.find((s) => s.id === stage)?.cadence ?? 0;
 const inCadence = (stage, now = Date.now()) => new Date(now + cadence(stage) * HOUR).toISOString();
-export const isLate = (p, now = state.now) => isEngaged(p) && new Date(p.followUpAt).getTime() <= now;
+/** The Follow up board: personal one-to-one touches. Marketing people get batch updates on the Marketing page instead. */
+export const BOARD = ENGAGED.filter((s) => s.id !== 'marketing');
+const BOARD_IDS = BOARD.map((s) => s.id);
+export const onBoard = (p) => BOARD_IDS.includes(p.stage);
+export const isLate = (p, now = state.now) => onBoard(p) && new Date(p.followUpAt).getTime() <= now;
 /** Scheduled for a call (Calls page): off the Follow up board until the call is logged. */
 export const inCalls = (p) => !!p.callAt && isEngaged(p);
 /** No follow-up date, or one that has passed. */
@@ -153,7 +157,8 @@ export function blankPerson(over = {}) {
     id: 0, name: '', organization: '', role: '', industry: '', project: '', email: '', phone: '', source: '',
     nextStep: '', followUpAt: new Date(Date.now() + DAY).toISOString(), stage: 'marketing', lostReason: '',
     reportsToId: null, strength: 1, createdAt: new Date().toISOString(), foundAt: '',
-    stageHistory: [], headline: '', notes: '', callAt: '', ...over,
+    stageHistory: [], headline: '', notes: '', callAt: '',
+    keepUpdated: false, giftOccasion: '', giftDue: '', giftStatus: '', ...over,
   };
 }
 
@@ -214,14 +219,14 @@ export const state = {
   sourceFilled: meta?.sourceFilled ?? false,
   now: Date.now(),
   ui: {
-    route: 'today', followView: 'pipeline', search: '', account: '', industry: '', stage: '',
+    route: 'follow-up', followView: 'pipeline', search: '', account: '', industry: '', stage: '',
     pool: { tab: 'warm', source: '', sort: 'new', search: '', limit: 25, picked: [], anchor: null },
     sort: { key: 'followUpAt', dir: 1 }, selectedId: null, multi: [], cursor: null, bulkConfirm: false, modal: null, toast: null,
     today: { source: '', project: '' }, sourceSel: 'Events', confirmRemove: false,
     calls: { day: null, currentId: null, draft: null, done: load('kinfolk-v3-calls-done', []).filter((d) => d.at > Date.now() - 2 * DAY) },
     sched: { id: null, day: null },
   },
-  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false, v6: false, v7: false, v8: false },
+  sync: { config: load(K.sync, null), status: 'local', message: '', lastSync: null, queued: 0, v3: false, v6: false, v7: false, v8: false, v9: false },
 };
 
 let emit = () => {};
@@ -244,6 +249,8 @@ export function toSheet(p) {
     reports_to_id: p.reportsToId ?? '', strength: p.strength, email: p.email, phone: p.phone, source: p.source,
     found_at: p.foundAt || '', created_at: p.createdAt,
     funnel_stage: p.stage, stage_history: JSON.stringify(p.stageHistory || []), call_at: p.callAt || '',
+    keep_updated: p.keepUpdated ? 'yes' : '', gift_occasion: p.giftOccasion || '', gift_due: p.giftDue || '',
+    gift_status: p.giftStatus || '',
   };
 }
 
@@ -283,6 +290,9 @@ export function fromSheet(r, { version = 5, touched = new Set() } = {}) {
     createdAt: created, foundAt: r.found_at ? String(r.found_at) : '',
     headline: String(r.headline ?? ''), notes: String(r.notes ?? ''), stageHistory: history,
     callAt: r.call_at && ENGAGED_IDS.includes(stage) ? String(r.call_at) : '',
+    keepUpdated: /^(y|yes|true|1)$/i.test(String(r.keep_updated ?? '').trim()),
+    giftOccasion: String(r.gift_occasion ?? ''), giftDue: r.gift_due ? String(r.gift_due) : '',
+    giftStatus: GIFT_IDS.includes(String(r.gift_status ?? '')) ? String(r.gift_status) : '',
   });
 }
 
@@ -326,6 +336,9 @@ export function columns() {
 }
 
 export const lateCount = () => state.people.filter((p) => isLate(p) && !inCalls(p)).length;
+/** Board people (not in Calls) due later today: the grey count next to Follow up. */
+export const dueTodayCount = (now = state.now) => state.people.filter((p) => onBoard(p) && !inCalls(p) && !isLate(p, now)
+  && new Date(p.followUpAt).getTime() < startOfDay(now) + DAY).length;
 
 /** Closed deals, kept as a record: counts overall and in the last 30 days (by when they reached the stage). */
 export function closedStats(now = state.now) {
@@ -483,7 +496,8 @@ export function setStage(id, stage) {
   if (stage === 'won') return `${p.name} is Won ★ · off Follow up, kept as a record`;
   if (stage === 'lost') return `${p.name} is Lost · off Follow up, kept as a record`;
   if (stage === 'prospect') return `${p.name} is back in Leads`;
-  return `${p.name} is now ${stageLabel(stage)}${joins ? ' · on Follow up' : ''}${patch.followUpAt ? ` · due ${dueText(patch.followUpAt)}` : ''}`;
+  if (stage === 'marketing') return `${p.name} is now Marketing · on the Marketing page${patch.followUpAt ? `, next update ${dueText(patch.followUpAt)}` : ''}`;
+  return `${p.name} is now ${stageLabel(stage)}${joins || p.stage === 'marketing' ? ' · on Follow up' : ''}${patch.followUpAt ? ` · due ${dueText(patch.followUpAt)}` : ''}`;
 }
 const dueText = (iso) => {
   const h = Math.round((new Date(iso).getTime() - Date.now()) / HOUR);
@@ -774,4 +788,118 @@ export function logCall(id, c) {
   if (closing) return `${p.name} · ${outcome} · ${stageLabel(c.stage)}${c.stage === 'won' ? ' ★' : ''}`;
   if (again) return `${p.name} · ${outcome} · call again ${callLabel(c.callAt).replace(/^(Today|Tomorrow)/, (m) => m.toLowerCase())}`;
   return `${p.name} · ${outcome} · back on Follow up (${stageLabel(byId(id).stage)})`;
+}
+
+// ───────────── marketing: people who only get updates ─────────────
+// Everyone at stage Marketing (automatic) plus past clients (Won) you chose to keep updated (`keepUpdated`).
+// Updates go out in batches, weekly. A Marketing person's next update is their follow-up date (the stage's 1W
+// rhythm); a Won client's is a week after their last touch (or after they were won).
+const WEEK = 7 * DAY;
+export const onMarketing = (p) => (p.stage === 'marketing' && !inCalls(p)) || (p.stage === 'won' && !!p.keepUpdated);
+const wonAt = (p) => [...(p.stageHistory || [])].reverse().find((h) => h.stage === 'won')?.at || p.createdAt;
+export function updateDue(p) {
+  if (p.stage === 'marketing') return new Date(p.followUpAt || 0).getTime();
+  const last = touchesFor(p.id)[0];
+  return Math.max(new Date(last ? last.date : 0).getTime(), new Date(wonAt(p)).getTime()) + WEEK;
+}
+export const marketingList = () => state.people.filter(onMarketing)
+  .sort((a, b) => updateDue(a) - updateDue(b) || a.name.localeCompare(b.name));
+/** due: due by the end of today (grey); overdue: was due before today (red). */
+export function marketingStats(now = state.now) {
+  const list = marketingList();
+  const today = startOfDay(now);
+  return {
+    total: list.length,
+    due: list.filter((p) => updateDue(p) < today + DAY).length,
+    overdue: list.filter((p) => updateDue(p) < today).length,
+  };
+}
+
+/** "Sent update" for one or many: a touch each (the note, if any), and the next update a week out. */
+export function sendUpdate(ids, note = '') {
+  const n = note.trim();
+  const done = ids.map(byId).filter((p) => p && onMarketing(p));
+  done.forEach((p) => {
+    logTouch(p, n ? `Update: ${n}` : p.nextStep || 'Weekly update', p.project);
+    if (p.stage === 'marketing') patchPerson(p.id, { followUpAt: new Date(Date.now() + WEEK).toISOString() });
+  });
+  if (!done.length) return '';
+  return `Update sent to ${done.length === 1 ? done[0].name : plural(done.length, 'person', 'people')} · next one in a week`;
+}
+
+/** Past clients: keep sending them updates (Marketing page) or stop. */
+export function setKeepUpdated(id, on) {
+  const p = byId(id);
+  if (!p) return '';
+  patchPerson(id, { keepUpdated: !!on });
+  return on ? `${p.name} · on Marketing, weekly updates` : `${p.name} · off Marketing`;
+}
+
+/** → Marketing from anywhere: engaged people change stage; Won clients keep their stage and get updates. */
+export function toMarketing(id) {
+  const p = byId(id);
+  if (!p) return '';
+  if (p.stage === 'won') return setKeepUpdated(id, true);
+  return setStage(id, 'marketing');
+}
+
+// ───────────── gifts: a tag on top ─────────────
+// A gift doesn't move anyone: the person stays on their usual page, and the Gifts page lists who needs one.
+export const GIFT_STATUS = [
+  { id: 'to_buy', label: 'To buy' },
+  { id: 'ready', label: 'Ready' },
+  { id: 'given', label: 'Given' },
+];
+const GIFT_IDS = GIFT_STATUS.map((g) => g.id);
+export const OCCASIONS = ['Christmas', 'Birthday', 'Thank you', 'New year'];
+export const giftPending = (p) => p.giftStatus === 'to_buy' || p.giftStatus === 'ready';
+const giftTime = (p) => (p.giftDue ? new Date(p.giftDue).getTime() : Infinity);
+
+/** The next 24 Dec 9 AM (this year, or next year once it has passed). */
+export function nextChristmas(now = Date.now()) {
+  const y = new Date(now).getFullYear();
+  const at = (yr) => new Date(yr, 11, 24, 9).getTime();
+  return new Date(at(y) > now ? at(y) : at(y + 1)).toISOString();
+}
+
+export const giftList = () => state.people.filter(giftPending)
+  .sort((a, b) => giftTime(a) - giftTime(b) || a.name.localeCompare(b.name));
+export const giftsGiven = () => state.people.filter((p) => p.giftStatus === 'given')
+  .sort((a, b) => giftTime(b) - giftTime(a) || a.name.localeCompare(b.name));
+/** soon: to give within 7 days (grey); overdue: the day has passed (red). */
+export function giftStats(now = state.now) {
+  const list = giftList();
+  const today = startOfDay(now);
+  return {
+    total: list.length,
+    overdue: list.filter((p) => giftTime(p) < today).length,
+    soon: list.filter((p) => giftTime(p) >= today && giftTime(p) < today + 7 * DAY).length,
+  };
+}
+
+/** Put people on the gift list (or change their gift). */
+export function addGift(ids, occasion, due) {
+  const occ = (occasion || '').trim() || 'Gift';
+  const done = ids.filter((id) => byId(id) && patchPerson(id, { giftOccasion: occ, giftDue: due || '', giftStatus: 'to_buy' }));
+  if (!done.length) return '';
+  return `${done.length === 1 ? byId(done[0]).name : plural(done.length, 'person', 'people')} · ${occ} gift to buy`;
+}
+
+/** To buy → Ready → Given. Given logs a touch; the person stays where they are. */
+export function setGiftStatus(id, status) {
+  const p = byId(id);
+  if (!p || !GIFT_IDS.includes(status) || p.giftStatus === status) return '';
+  patchPerson(id, { giftStatus: status });
+  if (status === 'given') {
+    logTouch(p, `Gift: ${p.giftOccasion || 'given'}`, p.project);
+    return `${p.name} · ${p.giftOccasion || 'gift'} given · touch logged`;
+  }
+  return `${p.name} · ${p.giftOccasion || 'gift'} ${status === 'ready' ? 'ready' : 'to buy'}`;
+}
+
+export function clearGift(id) {
+  const p = byId(id);
+  if (!p) return '';
+  patchPerson(id, { giftOccasion: '', giftDue: '', giftStatus: '' });
+  return `${p.name} · off the gift list`;
 }

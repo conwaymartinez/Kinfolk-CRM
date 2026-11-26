@@ -3,7 +3,9 @@ import { html, icon, fromLocalInput, HOUR, DAY, startOfDay } from './ui.js';
 import * as S from './store.js';
 import { state } from './store.js';
 import { startSync, connect, disconnect, pull, syncLabel } from './sync.js';
-import { renderToday, emptyFind } from './views/today.js';
+import { emptyFind } from './views/research.js';
+import { renderMarketing } from './views/marketing.js';
+import { renderGifts } from './views/gifts.js';
 import { renderFollowUp, sortedRows } from './views/followup.js';
 import { renderSources, PAGE } from './views/sources.js';
 import { renderModal } from './views/modals.js';
@@ -12,29 +14,41 @@ import { renderCalls, currentCall, newCallDraft, callDraft } from './views/calls
 const root = document.getElementById('root');
 state.ui.find = emptyFind();
 state.ui.paste = { open: false, list: '', project: '', text: '' };
+/** yyyy-mm-dd in local time, for <input type="date">. */
+const dateInput = (iso) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const fromDateInput = (v) => { if (!v) return ''; const [y, mo, da] = v.split('-').map(Number); return new Date(y, mo - 1, da, 9).toISOString(); };
+state.ui.mkt = { note: '', picked: [] };
+state.ui.gift = { who: '', occasion: 'Christmas', due: dateInput(S.nextChristmas()), error: '' };
 
 // ───────────── render ─────────────
 function rail() {
   const r = state.ui.route;
   const late = S.lateCount();
+  const dueToday = S.dueTodayCount();
   const cols = S.columns();
   const leads = S.prospectStats().total;
   const closed = S.closedStats(state.now);
   const book = S.callBook(state.now);
   const callsLeft = S.callWorkList(state.now).length;
+  const mkt = S.marketingStats(state.now);
+  const gifts = S.giftStats(state.now);
+  // Grey number: waiting today. Red badge: overdue.
+  const n = (v, title) => (v ? html`<span class="rail-n" title="${title}">${v}</span>` : '');
+  const red = (v, label) => (v ? html`<span class="badge" aria-label="${v} ${label}">${v}</span>` : '');
   const item = (id, href, label, ic, extra) => html`
     <a href="${href}" class="rail-item ${r === id ? 'on' : ''}" aria-current="${r === id ? 'page' : 'false'}">
       ${icon(ic, 18)}<span class="rail-label">${label}</span>${extra || ''}</a>`;
   return html`
     <nav class="rail" aria-label="Main">
-      <a href="#/today" class="ws" aria-label="Kinfolk home"><span class="logo">K</span><span class="ws-text"><strong>Kinfolk</strong><span>Sales CRM</span></span></a>
-      ${item('today', '#/today', 'Today', 'today')}
-      ${item('follow-up', '#/follow-up', 'Follow up', 'clock', late ? html`<span class="badge" aria-label="${late} late">${late}</span>` : '')}
-      ${item('calls', '#/calls', 'Calls', 'phone', html`${callsLeft ? html`<span class="rail-n" title="Left today">${callsLeft}</span>` : ''}${book.missed.length ? html`<span class="badge" aria-label="${book.missed.length} missed">${book.missed.length}</span>` : ''}`)}
-      ${item('sources', '#/leads', 'Leads', 'sources', leads ? html`<span class="rail-n">${leads}</span>` : '')}
+      <a href="#/follow-up" class="ws" aria-label="Kinfolk home"><span class="logo">K</span><span class="ws-text"><strong>Kinfolk</strong><span>Sales CRM</span></span></a>
+      ${item('follow-up', '#/follow-up', 'Follow up', 'clock', html`${n(dueToday, 'Due today')}${red(late, 'late')}`)}
+      ${item('calls', '#/calls', 'Calls', 'phone', html`${n(callsLeft, 'Left today')}${red(book.missed.length, 'missed')}`)}
+      ${item('marketing', '#/marketing', 'Marketing', 'send', html`${n(mkt.due - mkt.overdue, 'Due today')}${red(mkt.overdue, 'overdue')}`)}
+      ${item('gifts', '#/gifts', 'Gifts', 'gift', html`${n(gifts.soon, 'To give this week')}${red(gifts.overdue, 'late')}`)}
+      ${item('sources', '#/leads', 'Leads', 'sources', n(leads, 'To warm up'))}
       <div class="rail-sec">
         <p class="rail-h">Pipeline</p>
-        ${S.ENGAGED.map((s) => html`<a class="rail-stage" href="#/follow-up" title="${s.desc} · every ${s.every}"><span class="dot s-${s.id}"></span>${s.label}<span class="rail-n">${cols[s.id].length}</span></a>`)}
+        ${S.ENGAGED.map((s) => html`<a class="rail-stage" href="${s.id === 'marketing' ? '#/marketing' : '#/follow-up'}" title="${s.desc} · every ${s.every}"><span class="dot s-${s.id}"></span>${s.label}<span class="rail-n">${cols[s.id].length}</span></a>`)}
         <p class="rail-h">Last 30 days</p>
         <span class="rail-stage">Won<span class="rail-n">${closed.wonMonth}</span></span>
         <span class="rail-stage">Lost<span class="rail-n">${closed.lostMonth}</span></span>
@@ -50,7 +64,9 @@ function view() {
   if (state.ui.route === 'follow-up') return renderFollowUp();
   if (state.ui.route === 'sources') return renderSources();
   if (state.ui.route === 'calls') return renderCalls();
-  return renderToday();
+  if (state.ui.route === 'marketing') return renderMarketing();
+  if (state.ui.route === 'gifts') return renderGifts();
+  return renderFollowUp();
 }
 
 let focusAfter = null;
@@ -105,10 +121,13 @@ function route() {
   if (h.startsWith('follow-up')) { state.ui.route = 'follow-up'; state.ui.followView = h.endsWith('/sheet') ? 'sheet' : 'pipeline'; }
   else if (h.startsWith('leads') || h.startsWith('sources')) state.ui.route = 'sources';
   else if (h.startsWith('calls')) state.ui.route = 'calls';
-  else state.ui.route = 'today';
+  else if (h.startsWith('marketing')) state.ui.route = 'marketing';
+  else if (h.startsWith('gifts')) state.ui.route = 'gifts';
+  else { state.ui.route = 'follow-up'; state.ui.followView = 'pipeline'; } // home (old #/today links land here too)
   state.ui.selectedId = state.ui.route === 'follow-up' ? state.ui.selectedId : null;
   clearMulti();
   Object.assign(state.ui.pool, { picked: [], anchor: null });
+  state.ui.mkt.picked = [];
   state.ui.sched = { id: null, day: null, bulkDay: null };
   render();
   document.getElementById('main')?.scrollTo?.(0, 0);
@@ -129,6 +148,8 @@ function openFind(source) {
   render();
 }
 const closeModal = () => { state.ui.modal = null; render(); };
+/** Leads › Research is open (the prospecting keys apply). */
+const researching = () => state.ui.route === 'sources' && state.ui.pool.tab === 'research';
 
 // ───────────── actions ─────────────
 /**
@@ -145,7 +166,7 @@ function moveSelection(sel, dx, dy) {
     return i < 0 ? order[0] : order[Math.min(order.length - 1, Math.max(0, i + dy))];
   }
   const c = S.columns();
-  const cols = S.ENGAGED.map((st) => c[st.id].map((p) => p.id));
+  const cols = S.BOARD.map((st) => c[st.id].map((p) => p.id));
   let ci = cols.findIndex((ids) => ids.includes(sel));
   if (ci < 0) return cols.find((ids) => ids.length)?.[0] ?? null;
   const ri = cols[ci].indexOf(sel);
@@ -309,7 +330,7 @@ function act(action, el) {
     case 'pool-all': state.ui.pool.limit = Infinity; break;
     case 'lead-search-clear': state.ui.pool.search = ''; focusAfter = '#lead-search'; break;
     case 'pool-touch': openPerson(num, { touch: true, focus: '#next-step' }); return;
-    case 'pool-warm': toast(S.setStage(num, S.FIRST_ENGAGED)); break;
+    case 'pool-warm': toast(S.toMarketing(num)); break;
     case 'pool-unqualified': toast(S.setStage(num, 'unqualified')); break;
     case 'lead-pick-clear': state.ui.pool.picked = []; state.ui.pool.anchor = null; break;
     case 'unq-revive': toast(S.setStage(num, 'prospect')); break;
@@ -320,13 +341,31 @@ function act(action, el) {
       break;
     }
     case 'skip-target': S.skipTarget(id); toast('Moved to the back of the list'); focusAfter = '#research'; break;
-    case 'notfit-target': S.setTargetStatus(id, 'not_fit'); toast('Marked not a fit'); if (state.ui.route === 'today') focusAfter = '#research'; break;
+    case 'notfit-target': S.setTargetStatus(id, 'not_fit'); toast('Marked not a fit'); if (researching()) focusAfter = '#research'; break;
     case 'reopen-target': S.setTargetStatus(id, 'to_research'); break;
     case 'delete-target': S.deleteTarget(id); toast('Company removed from the list'); break;
     case 'today-any': state.ui.today.source = ''; break;
     case 'log-find': openFind(el?.dataset.source); return;
     case 'edit-goal': state.ui.modal = { type: 'goal' }; focusAfter = '#goal-input'; break;
-    case 'research': state.ui.today = { source: id, project: '' }; go('#/today'); return;
+    case 'research': state.ui.today = { source: id, project: '' }; Object.assign(state.ui.pool, { tab: 'research', search: '' }); go('#/leads'); return;
+    // Marketing page
+    case 'mkt-pick': { const mp = state.ui.mkt.picked; state.ui.mkt.picked = mp.includes(num) ? mp.filter((x) => x !== num) : [...mp, num]; break; }
+    case 'mkt-pick-due': { const end = startOfDay(state.now) + DAY; state.ui.mkt.picked = S.marketingList().filter((p) => S.updateDue(p) < end).map((p) => p.id); break; }
+    case 'mkt-pick-clear': state.ui.mkt.picked = []; break;
+    case 'mkt-send-one': toast(S.sendUpdate([num], state.ui.mkt.note)); state.ui.mkt.picked = state.ui.mkt.picked.filter((x) => x !== num); break;
+    case 'mkt-stop': toast(S.setKeepUpdated(num, false)); break;
+    case 'mkt-need': toast(S.setStage(num, 'discovery')); break;
+    // Gifts page
+    case 'gift-occasion': state.ui.gift.occasion = el.dataset.value; break;
+    case 'gift-status': toast(S.setGiftStatus(num, el.dataset.value)); break;
+    case 'gift-clear': toast(S.clearGift(num)); break;
+    case 'bulk-gift': {
+      const ids = picked();
+      if (!ids.length) break;
+      toast(S.addGift(ids, state.ui.gift.occasion, fromDateInput(state.ui.gift.due)));
+      clearMulti();
+      break;
+    }
     case 'pick-source': state.ui.sourceSel = id; state.ui.paste.open = false; break;
     case 'paste-open': state.ui.paste.open = true; focusAfter = '[data-bind="paste.list"]'; break;
     case 'paste-close': state.ui.paste.open = false; break;
@@ -417,6 +456,16 @@ function onBind(el, final) {
   if (b === 'account' || b === 'industry') { state.ui[b] = val; return render(); }
   if (b === 'bulkStage') { if (val) toast(S.bulkStage(picked(), val)); return render(); }
   if (b === 'bulkProject') { if (val !== '__') toast(S.bulkSet(picked(), 'project', val)); return render(); }
+  if (b === 'mktAddClient') { if (val) toast(S.setKeepUpdated(Number(val), true)); return render(); }
+  if (scope === 'mkt') { state.ui.mkt[field] = val; return; }
+  if (scope === 'gift') {
+    state.ui.gift[field] = val;
+    if (field === 'occasion' && !val.trim()) state.ui.gift.occasion = 'Christmas';
+    if (state.ui.gift.error) { state.ui.gift.error = ''; render(); }
+    if (final && field !== 'who') render();
+    return;
+  }
+  if (b === 'keepUpdated') { m.draft.keepUpdated = val; return render(); }
   if (b === 'poolSort') { state.ui.pool.sort = val; return render(); }
   if (b === 'leadBulkSource') { if (val !== '__') { toast(S.bulkSource(state.ui.pool.picked, val)); Object.assign(state.ui.pool, { picked: [], anchor: null }); } return render(); }
   if (b === 'bulkSource') { if (val !== '__') toast(S.bulkSource(picked(), val)); return render(); }
@@ -500,6 +549,24 @@ async function onSubmit(form) {
     return render();
   }
   if (kind === 'call') return saveCall(false);
+  if (kind === 'mkt') {
+    const msg = S.sendUpdate(state.ui.mkt.picked, state.ui.mkt.note);
+    if (!msg) return;
+    state.ui.mkt = { note: '', picked: [] };
+    toast(msg);
+    return render();
+  }
+  if (kind === 'gift') {
+    const g = state.ui.gift;
+    const name = g.who.trim().toLowerCase();
+    const matches = state.people.filter((p) => p.name.trim().toLowerCase() === name);
+    const p = matches.find((x) => !S.isOff(x)) || matches[0];
+    if (!p) { g.error = name ? `Nobody called “${g.who.trim()}”. Pick a name from the list.` : 'Who is the gift for?'; focusAfter = '#gift-who'; return render(); }
+    toast(S.addGift([p.id], g.occasion, fromDateInput(g.due)));
+    g.who = '';
+    focusAfter = '#gift-who';
+    return render();
+  }
   if (kind === 'goal') {
     const v = Number(new FormData(form).get('goal'));
     if (v > 0) state.goal = Math.round(v);
@@ -630,21 +697,21 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (gPending && Date.now() - gPending < 1200) {
     gPending = 0;
-    if (k === 't') return go('#/today');
-    if (k === 'f') return go('#/follow-up');
+    if (k === 'f' || k === 't') return go('#/follow-up');
     if (k === 'c') return go('#/calls');
+    if (k === 'm') return go('#/marketing');
+    if (k === 'g') return go('#/gifts');
     if (k === 'l' || k === 's') return go('#/leads');
   }
   if (k === 'g') { gPending = Date.now(); return; }
   if (k === '?') { state.ui.modal = { type: 'keys' }; return render(); }
   if (k === 'n' || k === 'q') { e.preventDefault(); return openPerson(null); }
 
-  if (state.ui.route === 'today') {
+  if (researching()) {
     const t = S.queue()[0];
     if (k === 's' && t) return act('skip-target', { dataset: { id: t.id } });
     if (k === 'x' && t) return act('notfit-target', { dataset: { id: t.id } });
     if (k === 'l') { e.preventDefault(); return openFind(); }
-    return;
   }
   if (state.ui.route === 'sources') {
     if (k === 'f' || k === '/') { e.preventDefault(); focusAfter = '#lead-search'; return render(); }

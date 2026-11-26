@@ -3,7 +3,7 @@ import { html, icon, rel, plural, DAY, startOfDay } from '../ui.js';
 import {
   state, PRESETS, columns, matchesFilters, isWin, isNew, isLate, isEngaged, accounts, industries, lateCount, touchStats,
   STAGES, STAGE_IDS, ENGAGED, stageLabel, prospectStats, matchesOtherFilters, isOff, closedStats, SOURCES,
-  SLOTS, slotOpen, inCalls, callLabel, scheduled,
+  SLOTS, slotOpen, inCalls, callLabel, scheduled, BOARD, marketingStats, giftPending,
 } from '../store.js';
 
 const shortDay = (t, today) => (t === today ? 'Today' : t === today + DAY ? 'Tomorrow' : `${new Date(t).toLocaleDateString(undefined, { weekday: 'short' })} ${new Date(t).getDate()}`);
@@ -48,6 +48,7 @@ export const stageTag = (p) => html`<span class="tag stage s-${p.stage}">${stage
 
 const tags = (p, withStage = true) => html`
   ${withStage ? stageTag(p) : ''}
+  ${giftPending(p) ? html`<span class="tag gift">${icon('gift', 12)}</span>` : ''}
   ${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}
   ${isNew(p) ? html`<span class="tag new">New</span>` : ''}`;
 
@@ -108,9 +109,10 @@ function pipeline() {
     ${multi.length > 1 ? html`<div class="bulk-bar" role="toolbar" aria-label="${multi.length} picked">
       <strong>${multi.length} picked</strong><span class="bulk-sep"></span>${bulkCall()}<span class="grow"></span>
       <button type="button" class="btn sm" data-action="bulk-clear" title="Esc">Clear</button></div>` : ''}
+    ${marketingStats(now).total ? html`<div class="away">${icon('send', 16)}<span class="grow"><strong>${plural(marketingStats(now).total, 'person gets', 'people get')} weekly updates</strong> on Marketing, not this board.</span><a class="link" href="#/marketing">Open Marketing →</a></div>` : ''}
     ${booked ? html`<div class="away">${icon('phone', 16)}<span class="grow"><strong>${plural(booked, 'person is', 'people are')} in Calls</strong> and off this board until their call is logged.</span><a class="link" href="#/calls">Open Calls →</a></div>` : ''}
     <div class="board" aria-label="Follow-up board">
-      ${ENGAGED.map((c) => html`
+      ${BOARD.map((c) => html`
         <section class="col" data-drop="${c.id}" aria-label="${c.label}">
           <div class="col-head" title="${c.desc}"><h2><span class="dot s-${c.id}"></span>${c.label}<span class="col-n">${cols[c.id].length}</span></h2><span class="tag outline">every ${c.every}</span></div>
           <div class="col-body" data-scroll="${c.id}">
@@ -120,7 +122,7 @@ function pipeline() {
               <div class="card-top"><button type="button" class="link name" data-action="edit" data-id="${p.id}" title="Open ${p.name}">${p.name}</button>
                 <span class="timer ${isLate(p, now) ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></div>
               <div class="card-top"><span class="step ${p.nextStep ? '' : 'muted'}" title="${p.nextStep}">${p.nextStep || 'No next step'}</span>
-                <span class="row" style="gap:6px">${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}<button type="button" class="card-call" data-action="sched-open" data-id="${p.id}"
+                <span class="row" style="gap:6px">${giftPending(p) ? html`<span class="tag gift" title="${p.giftOccasion} gift on the Gifts page">${icon('gift', 12)}</span>` : ''}${isWin(p.nextStep) ? html`<span class="tag win">Win</span>` : ''}<button type="button" class="card-call" data-action="sched-open" data-id="${p.id}"
                   aria-expanded="${sched === p.id}" title="Book a call (C)" aria-label="Book a call with ${p.name}">${icon('phone', 14)}</button></span></div>
               ${sched === p.id ? schedPanel(p) : ''}
             </article>`) : html`<p class="col-empty">${filtered ? 'No matches here' : 'Nobody here right now'}</p>`}
@@ -175,6 +177,8 @@ function bulkBar(ids) {
       </select>
       <span class="bulk-sep"></span>
       ${bulkCall()}
+      <span class="bulk-sep"></span>
+      <button type="button" class="pill" data-action="bulk-gift" title="Add to the gift list (${state.ui.gift.occasion})">${icon('gift', 13)} ${state.ui.gift.occasion} gift</button>
       <span class="grow"></span>
       <button type="button" class="btn sm danger-ghost" data-action="bulk-remove">${state.ui.bulkConfirm ? `Confirm remove ${ids.length}` : 'Remove'}</button>
       <button type="button" class="btn sm" data-action="bulk-clear" title="Esc">Clear</button>

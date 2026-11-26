@@ -13,8 +13,8 @@ There is no build step: native ES modules, plain CSS, no dependencies. GitHub Pa
 | `js/store.js` | State, persistence, sheet mapping, derived data, **every action that changes data** |
 | `js/sync.js` | Sheet transport: outbox, flush, pull, connect/disconnect |
 | `js/ui.js` | `html` tagged template (escapes by default), icons, time helpers |
-| `js/views/*.js` | `today`, `followup` (board + spreadsheet), `calls`, `sources` (the Leads page), `modals` — pure functions returning HTML |
-| `apps-script/Code.gs` | The sheet bridge (v8) |
+| `js/views/*.js` | `followup` (board + spreadsheet), `calls`, `marketing`, `gifts`, `sources` (the Leads page), `research` (Leads › Research), `modals` — pure functions returning HTML |
+| `apps-script/Code.gs` | The sheet bridge (v9) |
 
 Rendering is `root.innerHTML = view()` after every change. Focus and text selection are restored by `id` or `data-bind`.
 
@@ -26,12 +26,31 @@ Keep it small. Prefer extending these patterns over adding a framework or a depe
 
 ## Product model
 
-There are four pages, in a daily loop: **Today → Follow up → Calls → Leads**. Each page shows only what's needed to act there.
+**Sort by action, not by stage** (agreed 26 Nov 2026). Stage is the record (how close a deal is); the page someone shows up on is what to *do* with them. Each person has one action at a time; a gift is the exception (a tag on top).
 
-**Today** is the home page.
-1. A "Follow-ups first" strip shows people who are late or due today.
-2. Below it is a **prospecting session that rewards finding people, not messaging them.**
-   - The queue holds `targets` with status `to_research`, filtered by source and project. Skipped targets go to the back of the queue.
+Pages, in the sidebar: **Follow up (home) · Calls · Marketing · Gifts · Leads**. There is no Today page: `#/` and old `#/today` links open Follow up. Each sidebar item carries a **grey number** (waiting today) and a **red badge** (overdue):
+
+| Page | Grey | Red |
+|---|---|---|
+| Follow up | board people due later today (`dueTodayCount`) | late (`lateCount`) |
+| Calls | calls left today | missed |
+| Marketing | updates due today | updates overdue (due before today) |
+| Gifts | to give within 7 days | past their day |
+| Leads | people to warm up | — |
+
+**Marketing** (route `#/marketing`, `views/marketing.js`): people who only get updates, sent as a weekly batch.
+- Who (`onMarketing`): everyone at stage Marketing (not in Calls), plus Won clients with `keepUpdated` (the "Keep sending updates" box in the record when the stage is Won, or the page's "Past client" menu). "→ Marketing" in Leads calls `toMarketing` (Won → `keepUpdated`, anyone else → stage Marketing).
+- When (`updateDue`): a Marketing person's follow-up date (the stage's 1W rhythm); a Won client's last touch (or win date) + 7 days. Listed as **Due now** (by the end of today) and **Coming up**.
+- **Sent update** (`sendUpdate`): tick rows (or "Pick all due"), optionally say what was sent, submit. Each gets a touch (next step `Update: <note>`, else their next step) and, at stage Marketing, a follow-up one week out. "Sent" on a row does the same for one. "Has a need →" moves them to Discovery (onto Follow up); "Stop updates" clears `keepUpdated`.
+- Marketing people are **not on the Follow up board** and never Late (`BOARD`, `onBoard`, `isLate`); the spreadsheet and the stage strip still list them. A notice on the board links to Marketing.
+
+**Gifts** (route `#/gifts`, `views/gifts.js`): a tag on top — `giftOccasion`, `giftDue` (ISO, 9 AM on the day), `giftStatus` (`to_buy | ready | given`). A gift never changes stage, follow-up or page.
+- Add one: the form (name from a list, occasion chips Christmas / Birthday / Thank you / New year or Other, date defaulting to the next 24 Dec), or select rows in Follow up › Spreadsheet and press "<occasion> gift" in the bulk bar (uses the form's occasion and date).
+- The list (pending gifts, soonest first) has To buy / Ready / Given per row and ✕ to take someone off. **Given** logs a touch (`Gift: <occasion>`) and moves the gift to the "Given" list (Clear removes it).
+- A pending gift shows as a gift tag on board cards, Marketing rows and in the record.
+
+**Leads › Research** (was the Today page; `views/research.js`): a **prospecting session that rewards finding people, not messaging them.**
+   - The queue holds `targets` with status `to_research`, filtered by source and project. Skipped targets go to the back of the queue. "Research N →" on a hunting ground opens it filtered to that source.
    - Saving a find needs a name and a way to reach the person (email, or phone/LinkedIn). It creates a person with:
      - `source` and `foundAt = now`,
      - `nextStep = "First message"`,
@@ -42,7 +61,7 @@ There are four pages, in a daily loop: **Today → Follow up → Calls → Leads
    - "Log a find" does the same for open sources that have no list.
 
 **Follow up** has two views:
-- **Board:** one column per engaged stage (Marketing, Discovery, Proposal, Negotiation), soonest follow-up first, late ones in red. Each column head shows the stage's follow-up rhythm and count (the stage's meaning is its tooltip). Cards are compact: name + follow-up timer, then the next step (one line) and a Win tag; organization, project and detail live in the record. Clicking the name opens the record; clicking the card selects it (keys). Dragging a card to another column sets its stage. The board fits the window: each column scrolls on its own (`.col-body[data-scroll]`), its scroll position survives re-renders, and the selected card is kept in view inside its column. A line above says how many people wait in Leads and how many deals were won and lost in the last 30 days. Won, Lost and Unqualified people never appear here.
+- **Board:** one column per board stage (Discovery, Proposal, Negotiation; Marketing lives on its own page), soonest follow-up first, late ones in red. Each column head shows the stage's follow-up rhythm and count (the stage's meaning is its tooltip). Cards are compact: name + follow-up timer, then the next step (one line) and a Win tag; organization, project and detail live in the record. Clicking the name opens the record; clicking the card selects it (keys). Dragging a card to another column sets its stage. The board fits the window: each column scrolls on its own (`.col-body[data-scroll]`), its scroll position survives re-renders, and the selected card is kept in view inside its column. A line above says how many people wait in Leads and how many deals were won and lost in the last 30 days. Won, Lost and Unqualified people never appear here.
 - **Spreadsheet:** the engaged people, sortable, one line per row (Name, Stage, Project, Next step, Follow-up; the name opens the record), shown as cards on mobile. Typing a search widens it to everyone (Leads, Won, Lost and Unqualified too), so nobody is out of reach. Above it, the **stage strip**: one row of pills, the four engaged stages with counts under the other filters (click one to filter), then **Won · Lost** for the closed records.
   - Multi-select: Shift-click selects a range from the selected row, Cmd/Ctrl-click adds or removes one row, `Shift`+`↑`/`↓` extends. With 2+ selected, a bulk bar sets the stage, follow-up 24H/2D/1W, project and source, or removes them (two clicks). Bulk actions only touch rows that are visible under the current filters. Selection clears on page or view change.
 
@@ -50,12 +69,13 @@ Filters: search, account, industry (focus industries come first). Cards and rows
 
 **Calls** (route `#/calls`, `views/calls.js`): people booked for a phone call. There are only two slots a day, **12 NOON** and **5 PM** (`SLOTS` in store.js).
 - Booking sets `callAt` (the slot's start, ISO). From the board: the phone button on a card (or `C`) opens a day + slot picker inside the card (`state.ui.sched`); ⌘/Ctrl/Shift-click picks several cards and the bulk bar books them; the spreadsheet's bulk bar does the same. Only engaged people can be booked. A slot can be booked until the next one starts (12 NOON until 5 PM, 5 PM until midnight).
-- While `callAt` is set (`inCalls`), the person is **off the Follow up board and out of the Late count** and Today's follow-ups strip. The spreadsheet still lists them, with "Call · <slot>" in the Follow-up cell.
+- While `callAt` is set (`inCalls`), the person is **off the Follow up board, the Marketing page and the Late count**. The spreadsheet still lists them, with "Call · <slot>" in the Follow-up cell.
 - The page: a day strip (today + 4 days, plus later days with calls), then for the chosen day the 12 NOON and 5 PM lists. A call whose slot ended unlogged is **Missed** (`callMissed`), listed first, with a red count in the sidebar. The card on the right is the current call (`currentCall`: picked, else the first of missed + today's lists not skipped) with a `tel:` button from `phone`, next step, last touches, notes, and the log form.
 - Logging (`logCall`) records a touch (needs a next step), applies the stage (Won/Lost close it, with a reason for Lost), then either **Back to Follow up** (`callAt` cleared; follow-up from a preset/date, else the stage rhythm) or **Call again** (new day + slot; the default after No answer, Voicemail or Call back). ✕ on a row (`X`) sends someone back to Follow up without a call. Logged calls today are listed under "Done today" (`kinfolk-v3-calls-done`, kept two days).
-- Sheet column `call_at` (Code.gs v8). With an older Code.gs, bookings stay in the browser: `apply()` in sync.js keeps local `callAt` across pulls.
+- Sheet column `call_at` (Code.gs v8). Columns `keep_updated`, `gift_occasion`, `gift_due`, `gift_status` (Code.gs v9); with an older Code.gs they stay in the browser (`apply()` keeps them across pulls).
+  With an older Code.gs (before v8), bookings stay in the browser: `apply()` in sync.js keeps local `callAt` across pulls.
 
-**Leads** (route `#/leads`; `#/sources` still works; the view lives in `views/sources.js`) has three tabs (`state.ui.pool.tab`: `warm` | `unq` | `grounds`, with counts): **To warm up**, **Unqualified**, and **Hunting grounds** (the five fixed sources: **Events, Manning, Search, Social, Association**). To warm up and Unqualified are compact one-line tables showing 25 rows at a time (`PAGE`, `state.ui.pool.limit`; Show more / Show all; reset on tab, source or search change), with source chips (counts for that tab; each chip takes a dragged name).
+**Leads** (route `#/leads`; `#/sources` still works; the view lives in `views/sources.js`) has four tabs (`state.ui.pool.tab`: `warm` | `unq` | `research` | `grounds`, with counts): **To warm up**, **Unqualified**, **Research** (above), and **Hunting grounds** (the five fixed sources: **Events, Manning, Search, Social, Association**). To warm up and Unqualified are compact one-line tables showing 25 rows at a time (`PAGE`, `state.ui.pool.limit`; Show more / Show all; reset on tab, source or search change), with source chips (counts for that tab; each chip takes a dragged name).
 - A **search bar** at the top (`state.ui.pool.search`, separate from Follow up's search) filters To warm up (name, organization, role, project, industry, source, next step, email, phone) and the selected source's companies and logged finds (company, industry, note, list, project, person found). While searching, the tabs show match counts, each source card shows its match count, and the source panel links to other sources that match.
 - Each one shows found this week, how many companies are left to research, and how many of its people are engaged now.
 - Each has an editable "where to look" note.
@@ -64,7 +84,7 @@ Filters: search, account, industry (focus industries come first). Cards and rows
 - Events and Association are list-based; Manning, Search and Social are open (log as you go).
 - **To warm up** lists everyone at stage Prospect: new finds and anyone sent back because they went cold. Being here *is* being cold, so there's no Cold label. Sorted by date added (newest first by default), filterable by source. Each row shows **coldness** (touch count in its tooltip; the bands in the column header's tooltip): days since the last touch, or since added if never touched (Fresh 0–7, Cooling 8–30, Stale 31–90, Frozen 90+). Actions:
   - **Touch** opens the record with a touch ready; they stay in Leads and their follow-up runs on the same timer as Follow up (due → late).
-  - **→ Marketing** once they respond: onto Follow up (due within a week, Marketing's rhythm).
+  - **→ Marketing** once they respond: onto the Marketing page (next update within a week).
   - **Unqualified** when they're not a fit (e.g. can't afford it).
 - **Unqualified** (its own tab) lists everyone at stage Unqualified, most recently marked first, under the same source chips and search. Actions: **Back to Leads** (→ Prospect) and **→ Marketing**.
 - **Bulk source:** on To warm up and Unqualified rows, click selects one, Shift-click a range (within the same list), ⌘/Ctrl-click adds or removes one, `Esc` clears (`state.ui.pool.picked` / `anchor`, cleared on page change; `leadRowClick` in app.js). With 2+ selected a bulk bar offers **Set source…**; dragging a selected row onto a source moves all selected. The Follow up spreadsheet's bulk bar has **Set source…** too.
@@ -78,11 +98,11 @@ Filters: search, account, industry (focus industries come first). Cards and rows
 | Stage | Means | Rhythm | Shows on |
 |---|---|---|---|
 | Prospect | Not engaged yet, or gone cold: worth reviving | — | Leads › To warm up |
-| Marketing | Contacted, no active need yet (keep me updated, gave referrals) | 1W | Follow up |
+| Marketing | Contacted, no active need yet (keep me updated, gave referrals) | 1W | Marketing |
 | Discovery | In conversation, finding out whether there's a need | 1W | Follow up |
 | Proposal | Need confirmed; presenting the offer | 48H | Follow up |
 | Negotiation | Offer on the table; terms, price, objections | 24H | Follow up |
-| Won | Purchased | — | Records only (spreadsheet ▸ Records, search) |
+| Won | Purchased | — | Records only (spreadsheet ▸ Records, search); Marketing too with `keepUpdated` |
 | Lost | Final no, with `lostReason` | — | Records only (spreadsheet ▸ Records, search) |
 | Unqualified | Not a fit: don't revive | — | Leads › Unqualified, and search |
 
@@ -111,6 +131,8 @@ A Prospect, Won, Lost or Unqualified person may have no follow-up date (`followU
 | `reportsToId`, `strength` (1–3) | |
 | `createdAt`, `foundAt` | |
 | `headline`, `notes` | Sheet-owned; `notes` is written only on create |
+| `keepUpdated` | Won client still on the Marketing page (sheet `keep_updated`: `yes` or blank) |
+| `giftOccasion`, `giftDue`, `giftStatus` | The gift tag (sheet `gift_occasion`, `gift_due`, `gift_status`) |
 
 ### Touches
 
@@ -136,8 +158,8 @@ A touch is append-only: `{touch_id, date, person_id, person, next_step, project}
 Shortcuts are ignored while typing, while a modal is open (except `Esc`), or when a modifier key is held.
 
 - **Calls:** `1`–`4` outcome (Connected, No answer, Voicemail, Call back), `Enter` save & next, `S` skip, `↑`/`↓` or `J`/`K` pick from the list, `X` back to Follow up, `E` open the record. On Follow up, `C` books a call for the selected card.
-- **Anywhere:** `G` then `T`/`F`/`C`/`L` switches page (`S` still goes to Leads), `N`/`Q` adds a person, `?` shows the help.
-- **Today:** `S` skips, `X` marks not a fit, `L` logs a find, `Enter` saves.
+- **Anywhere:** `G` then `F`/`C`/`M`/`G`/`L` switches page (Follow up, Calls, Marketing, Gifts, Leads; `T` → Follow up, `S` → Leads), `N`/`Q` adds a person, `?` shows the help.
+- **Leads › Research:** `S` skips, `X` marks not a fit, `L` logs a find, `Enter` saves.
 - **Leads:** `F` or `/` jumps to search.
 - **Follow up:**
   - `↑`/`↓` or `J`/`K` move up and down a column (they stop at the ends). `←`/`→` or `H`/`L` jump to the same row in the next column that has cards. In the spreadsheet only up and down apply. `Esc` clears the selection, `F` or `/` jumps to search.
@@ -181,6 +203,7 @@ Sheet columns:
 
 ## Invariants
 
+- Marketing people are never on the board or Late; a gift never moves anyone.
 - A booked call (`callAt`) hides someone from the Follow up board and the Late count; only engaged people can have one, and Won/Lost/Unqualified clear it.
 - Stage is the only marker. Late and Win are derived. Prospects, Won, Lost and Unqualified people never enter the board or the Late count. Won and Lost show only under Records and in search; Unqualified only in Leads › Unqualified and in search.
 - Finds count toward the daily goal. A touch does not.

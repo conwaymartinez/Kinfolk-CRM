@@ -37,9 +37,14 @@
  * What changed in v8:
  *  - New column `call_at` (added at the end of People): the booked call slot (12 NOON or 5 PM on a day), blank when
  *    the person isn't in Calls. Someone with a call booked is off the Follow up board until the call is logged.
+ *
+ * What changed in v9:
+ *  - New columns (added at the end of People): `keep_updated` ("yes" for a Won client who still gets the weekly
+ *    updates on the Marketing page), and `gift_occasion`, `gift_due`, `gift_status` (to_buy | ready | given) for
+ *    the Gifts page. A gift is a tag: it doesn't change the stage or the follow-up.
  */
 
-const VERSION = 8;
+const VERSION = 9;
 const STAGES_PROP = 'KINFOLK_STAGES_V5';
 const UNQUALIFIED_PROP = 'KINFOLK_STAGES_V6';
 const SALES_PROP = 'KINFOLK_STAGES_V7';
@@ -57,11 +62,11 @@ const SOURCES = 'Sources';
 const PEOPLE_FIELDS = ['id', 'name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role',
   'industry', 'industry_check', 'reports_to_id', 'strength', 'created_at', 'updated_at', 'headline', 'geography',
   'email', 'phone', 'source', 'active_lead', 'found_at', 'how_i_know', 'notes', 'legacy_id', 'funnel_stage', 'stage_history',
-  'lost_reason', 'call_at'];
+  'lost_reason', 'call_at', 'keep_updated', 'gift_occasion', 'gift_due', 'gift_status'];
 // Fields Kinfolk may change. Everything else (headline, notes, geography…) is sheet-owned.
 const WRITABLE = ['name', 'status', 'follow_up_at', 'next_step', 'project', 'organization', 'role', 'industry',
   'industry_check', 'reports_to_id', 'strength', 'created_at', 'email', 'phone', 'source', 'found_at',
-  'funnel_stage', 'stage_history', 'lost_reason', 'call_at'];
+  'funnel_stage', 'stage_history', 'lost_reason', 'call_at', 'keep_updated', 'gift_occasion', 'gift_due', 'gift_status'];
 // Only written when Kinfolk creates the person.
 const ON_CREATE = ['id', 'headline', 'notes'];
 const TOUCH_FIELDS = ['touch_id', 'date', 'person_id', 'person', 'next_step', 'project'];
@@ -69,7 +74,7 @@ const TARGET_FIELDS = ['target_id', 'company', 'industry', 'hint', 'source', 'li
   'skipped_at', 'created_at', 'updated_at'];
 const SOURCE_FIELDS = ['source', 'where'];
 const SOURCE_NAMES = ['Events', 'Manning', 'Search', 'Social', 'Association'];
-const DATE_FIELDS = ['follow_up_at', 'created_at', 'updated_at', 'date', 'found_at', 'skipped_at', 'call_at'];
+const DATE_FIELDS = ['follow_up_at', 'created_at', 'updated_at', 'date', 'found_at', 'skipped_at', 'call_at', 'gift_due'];
 
 // ───────────────────────────── menu ─────────────────────────────
 

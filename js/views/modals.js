@@ -1,6 +1,6 @@
 // Dialogs: person record, log a find, daily goal, sync settings, keyboard shortcuts.
 import { html, icon, toLocalInput } from '../ui.js';
-import { state, PRESETS, SOURCES, STAGES, OFF_IDS, stageLabel, accounts, industries, touchesFor, isWin, byId } from '../store.js';
+import { state, PRESETS, SOURCES, STAGES, OFF_IDS, stageLabel, accounts, industries, touchesFor, isWin, byId, giftPending } from '../store.js';
 import { syncLabel } from '../sync.js';
 
 const shell = (title, sub, body, label = title) => html`
@@ -41,7 +41,11 @@ function personModal(m) {
         <span class="muted small">${d.stage === 'prospect' ? 'Not engaged yet, or gone cold · waits in Leads, off the Follow up board'
           : d.stage === 'unqualified' ? "Not a fit · don't revive. Off Leads and Follow up; search finds them"
           : off ? `${stageInfo?.desc ?? ''}. Off Follow up; search finds them`
+          : d.stage === 'marketing' ? `${stageInfo.desc} · on the Marketing page · weekly updates`
           : `${stageInfo?.desc ?? ''} · on the Follow up board · follow up every ${stageInfo?.every ?? ''}`}</span>
+        ${d.stage === 'won' ? html`<label class="check"><input type="checkbox" data-bind="keepUpdated" ${d.keepUpdated ? 'checked' : ''}>
+          <span><strong>Keep sending updates</strong><span class="muted small block">Lists this client on the Marketing page, weekly</span></span></label>` : ''}
+        ${orig && giftPending(orig) ? html`<p class="small">${icon('gift', 13)} ${orig.giftOccasion} gift ${orig.giftStatus === 'ready' ? 'ready' : 'to buy'}${orig.giftDue ? ` by ${new Date(orig.giftDue).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : ''} · <a class="link" href="#/gifts">Gifts</a></p>` : ''}
         ${d.stage === 'lost' ? html`<label class="field">Why was it lost?
           <input id="lost-reason" data-bind="draft.lostReason" value="${d.lostReason || ''}" placeholder="e.g. No budget, went with a competitor, project cancelled"></label>` : ''}
         ${orig?.stageHistory?.length ? html`<ol class="stage-history" aria-label="Stage history">
@@ -174,8 +178,8 @@ const KEYS = [
     ['1 2 3', '', 'Follow up in 24H / 2 days / 1 week'], ['E', 'Enter', 'Open the full record']]],
   ['Calls', [['1 2 3 4', '', 'Connected / No answer / Voicemail / Call back'], ['Enter', '', 'Save & next call'], ['S', '', 'Skip for now'],
     ['↑ ↓', 'J K', 'Pick from the list'], ['X', '', 'Back to Follow up without a call'], ['C', '', 'On Follow up: book a call for the selected card']]],
-  ['Prospecting (Today)', [['Enter', '', 'Save prospect'], ['S', '', "Can't find anyone yet"], ['X', '', 'Not a fit'], ['L', '', 'Log a find']]],
-  ['Anywhere', [['G', 'then T F C L', 'Go to Today / Follow up / Calls / Leads'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
+  ['Research (Leads)', [['Enter', '', 'Save prospect'], ['S', '', "Can't find anyone yet"], ['X', '', 'Not a fit'], ['L', '', 'Log a find']]],
+  ['Anywhere', [['G', 'then F C M G L', 'Go to Follow up / Calls / Marketing / Gifts / Leads'], ['N', '', 'Add a person'], ['?', '', 'This list']]],
 ];
 
 function keysModal() {
