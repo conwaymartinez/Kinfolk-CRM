@@ -1,5 +1,7 @@
-// Leads, in three tabs: To warm up (stage Prospect), Unqualified, and the five hunting grounds with their lists.
+// Leads, in four tabs: To warm up (stage Prospect), Unqualified, Research (one company at a time from your lists),
+// and the five hunting grounds with their lists.
 import { html, plural, rel, icon } from '../ui.js';
+import { renderResearch } from './research.js';
 import { state, SOURCES, sourceStats, sourceWhere, prospects, prospectStats, coldness, addedAt, COLDNESS, isEngaged, stageLabel, matchesLead, matchesTarget, unqualifiedLeads } from '../store.js';
 
 const STATE_LABEL = { to_research: 'To research', found: 'Found', not_fit: 'Not a fit' };
@@ -85,7 +87,7 @@ function warmTab() {
             <td class="nowrap">${p.followUpAt ? html`<span class="timer ${late ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span>` : html`<span class="muted small">—</span>`}</td>
             <td class="actions">
               <button type="button" class="btn sm" data-action="pool-touch" data-id="${p.id}" title="Log a touch; they stay in Leads">Touch</button>
-              <button type="button" class="btn sm primary" data-action="pool-warm" data-id="${p.id}" title="They responded: move to Marketing, onto Follow up">→ Marketing</button>
+              <button type="button" class="btn sm primary" data-action="pool-warm" data-id="${p.id}" title="They responded: onto Marketing (weekly updates)">→ Marketing</button>
               <button type="button" class="btn sm ghost" data-action="pool-unqualified" data-id="${p.id}" title="Not a fit, don't revive">Unqualified</button>
             </td></tr>`;
         })}</tbody></table></div>${more(all.length)}`
@@ -108,7 +110,7 @@ function unqTab() {
           <td class="small clip" title="${p.nextStep}">${p.nextStep || html`<span class="muted">—</span>`}</td>
           <td class="actions">
             <button type="button" class="btn sm" data-action="unq-revive" data-id="${p.id}" title="Worth another try: back to To warm up">Back to Leads</button>
-            <button type="button" class="btn sm ghost" data-action="pool-warm" data-id="${p.id}" title="They responded: onto Follow up">→ Marketing</button>
+            <button type="button" class="btn sm ghost" data-action="pool-warm" data-id="${p.id}" title="They responded: onto Marketing (weekly updates)">→ Marketing</button>
           </td></tr>`)}</tbody></table></div>${more(all.length)}`
       : html`<p class="col-empty">${state.ui.pool.search.trim() || state.ui.pool.source ? emptyText('unqualified people') : 'Nobody is marked Unqualified.'}</p>`}</section>`;
 }
@@ -177,7 +179,7 @@ function groundsTab() {
         </div>
         <div class="row wrap">
           <button class="btn sm" type="button" data-action="paste-open">Paste a company list</button>
-          ${st.left ? html`<button class="btn sm primary" type="button" data-action="research" data-id="${sel.id}">Research ${st.left} in Today →</button>`
+          ${st.left ? html`<button class="btn sm primary" type="button" data-action="research" data-id="${sel.id}">Research ${st.left} →</button>`
             : html`<button class="btn sm primary" type="button" data-action="log-find" data-source="${sel.id}">+ Log a find</button>`}
         </div>
       </div>
@@ -188,7 +190,7 @@ function groundsTab() {
           <tbody>${targets.map(targetRow)}</tbody></table></div>`
         : q ? html`<p class="col-empty">No ${sel.id} companies match “${q}”.</p>`
         : html`<p class="col-empty">${sel.mode === 'list'
-          ? `No ${sel.id} list yet. Paste the companies and work through them one at a time in Today.`
+          ? `No ${sel.id} list yet. Paste the companies and work through them one at a time in Research.`
           : `${sel.id} has no fixed list: log each person as you find them.`}</p>`}
       ${finds.length ? html`
         <div class="finds"><h3 class="h3">Logged finds <span class="muted small">· drag one onto a source card to move it</span></h3>
@@ -221,14 +223,14 @@ export function renderSources() {
       : state.sync.config && state.sync.v6 && !state.sync.v7 ? html`<p class="notice">Your sheet runs <code>Code.gs</code> v6: the new stage names sync, but Lost reasons aren't saved to the sheet and old rows keep the Attention…Action names there. Update it to v7 (see SETUP.md).</p>` : ''}
     <div class="toolbar">
       <div class="seg tabs" role="group" aria-label="Leads view">
-        ${tabBtn('warm', 'To warm up', count('prospect'))}${tabBtn('unq', 'Unqualified', count('unqualified'))}${tabBtn('grounds', 'Hunting grounds', groundsHits)}
+        ${tabBtn('warm', 'To warm up', count('prospect'))}${tabBtn('unq', 'Unqualified', count('unqualified'))}${tabBtn('research', 'Research', state.targets.filter((t) => t.status === 'to_research').length)}${tabBtn('grounds', 'Hunting grounds', groundsHits)}
       </div>
       <label class="search"><span class="sr">Search leads</span>${icon('search', 16)}
         <input id="lead-search" type="search" data-bind="leadSearch" value="${search}" placeholder="Search leads and companies"></label>
       ${q ? html`<button type="button" class="link small" data-action="lead-search-clear">Clear</button>` : ''}
       <span class="grow"></span>
-      ${tab !== 'grounds' ? html`<span class="muted small hint">Shift-click or ${MOD}-click rows to edit several · drag a name onto a source chip</span>` : ''}
+      ${tab === 'warm' || tab === 'unq' ? html`<span class="muted small hint">Shift-click or ${MOD}-click rows to edit several · drag a name onto a source chip</span>` : ''}
     </div>
     ${leadBulkBar()}
-    ${tab === 'unq' ? unqTab() : tab === 'grounds' ? groundsTab() : warmTab()}`;
+    ${tab === 'unq' ? unqTab() : tab === 'grounds' ? groundsTab() : tab === 'research' ? renderResearch() : warmTab()}`;
 }

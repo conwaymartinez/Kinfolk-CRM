@@ -91,8 +91,17 @@ function apply(data) {
   const touched = new Set(touches.map((t) => t.person_id));
   // Before Code.gs v8 the sheet has no call_at column: keep the call slots made in this browser.
   const localCalls = new Map(state.people.filter((p) => p.callAt).map((p) => [p.id, p.callAt]));
+  const localExtra = new Map(state.people.filter((p) => p.keepUpdated || p.giftStatus)
+    .map((p) => [p.id, { keepUpdated: p.keepUpdated, giftOccasion: p.giftOccasion, giftDue: p.giftDue, giftStatus: p.giftStatus }]));
   state.people = (data.people || []).map((r) => fromSheet(r, { version, touched })).filter((p) => p.id && p.name);
   if (version < 8) state.people.forEach((p) => { if (localCalls.has(p.id) && isEngaged(p)) p.callAt = localCalls.get(p.id); });
+  // Before Code.gs v9 the sheet has no keep_updated / gift_* columns: keep what was set in this browser.
+  if (version < 9) {
+    state.people.forEach((p) => {
+      const old = localExtra.get(p.id);
+      if (old) Object.assign(p, old);
+    });
+  }
   state.touches = touches;
   if (data.projects?.length) state.projects = data.projects;
   if (data.groups?.length) state.groups = data.groups;
@@ -101,6 +110,7 @@ function apply(data) {
   state.sync.v6 = version >= 6;
   state.sync.v7 = version >= 7;
   state.sync.v8 = version >= 8;
+  state.sync.v9 = version >= 9;
   if (state.sync.v3) {
     const remote = (data.targets || []).map(targetFromSheet).filter((t) => t.id && t.company);
     const local = state.targets.filter((t) => !t.id.startsWith('demo'));

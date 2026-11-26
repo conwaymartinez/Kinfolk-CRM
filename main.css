@@ -461,3 +461,14 @@ details p { margin-top: 6px; }
   .day-pick .chip, .day-pick input[type='date'], .slot-btn, .q-x, .card-call { min-height: 44px; }
   .card-call { width: 44px; }
 }
+
+/* Marketing and Gifts (v9) */
+.tag.gift { display: inline-flex; align-items: center; padding: 2px 6px; color: #9a3412; background: #fff1e6; border: 1px solid #fed7aa; }
+.card.batch { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.sheet th.pick, .sheet td.pick { width: 32px; padding-right: 0; }
+.sheet td.pick input { width: 16px; height: 16px; cursor: pointer; }
+.seg.tabs.sm button { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.chip-input { height: 32px; width: 120px; padding: 0 12px; border: 1px solid #e0e0e0; border-radius: 999px; font: inherit; font-size: 13px; }
+details.given { margin-top: 18px; }
+details.given summary { cursor: pointer; margin-bottom: 6px; }
+.main > .h3 { margin: 18px 0 8px; }

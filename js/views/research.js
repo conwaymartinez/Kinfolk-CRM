@@ -1,39 +1,8 @@
-// Today: follow-ups first, then a prospecting session that rewards finding people.
-import { html, rel, plural, DAY, startOfDay, startOfWeek } from '../ui.js';
-import {
-  state, isEngaged, isLate, touchStats, queue, findsBetween, SOURCES, SOURCE_IDS, inCalls, callWorkList, callBook,
-} from '../store.js';
+// Leads › Research: a prospecting session that rewards finding people. One company at a time from your lists.
+import { html, plural, DAY, startOfDay, startOfWeek } from '../ui.js';
+import { state, isEngaged, queue, findsBetween, SOURCES, SOURCE_IDS } from '../store.js';
 
 export const emptyFind = () => ({ name: '', role: '', email: '', phone: '', why: '', error: '' });
-
-function dueStrip() {
-  const now = state.now;
-  const endOfDay = startOfDay(now) + DAY;
-  const pipe = state.people.filter((p) => isEngaged(p) && !inCalls(p));
-  const calls = callWorkList(now).length;
-  const missed = callBook(now).missed.length;
-  const late = pipe.filter((p) => isLate(p, now));
-  const today = pipe.filter((p) => !isLate(p, now) && new Date(p.followUpAt).getTime() < endOfDay);
-  const list = [...late, ...today].sort((a, b) => new Date(a.followUpAt) - new Date(b.followUpAt)).slice(0, 3);
-  const next = pipe.filter((p) => !isLate(p, now)).sort((a, b) => new Date(a.followUpAt) - new Date(b.followUpAt))[0];
-  const summary = late.length || today.length
-    ? html`<span class="due-sum ${late.length ? 'is-late' : ''}">${[late.length && `${late.length} late`, today.length && `${today.length} due today`].filter(Boolean).join(' · ')}</span>`
-    : html`<span class="due-sum">All caught up.${next ? ` Next one ${rel(next.followUpAt, now)}.` : ''}</span>`;
-  return html`
-    <section class="due card" aria-label="Follow-ups due">
-      <div class="due-head"><strong>Follow-ups first</strong>${summary}</div>
-      ${list.map((p) => html`
-        <button type="button" class="due-item" data-action="open-followup" data-id="${p.id}">
-          <span class="due-top"><span class="name">${p.name}</span>
-            <span class="timer ${isLate(p, now) ? 'overdue' : ''}">${rel(p.followUpAt, now)}</span></span>
-          <span class="muted small">${p.nextStep || 'No next step'}</span>
-        </button>`)}
-      <span class="stack-xs">
-        <a class="link" href="#/follow-up">Open Follow up →</a>
-        ${calls ? html`<a class="link small" href="#/calls">${calls} ${calls === 1 ? 'call' : 'calls'} today${missed ? ` · ${missed} missed` : ''} →</a>` : ''}
-      </span>
-    </section>`;
-}
 
 function filters() {
   const { source, project } = state.ui.today;
@@ -89,9 +58,9 @@ function emptyCard(found) {
       <h3>${found ? `List done. ${plural(found, 'new person', 'new people')} found today.` : 'No companies waiting to be researched.'}</h3>
       <p>${any && source
         ? `Nothing left for ${source}${state.ui.today.project ? ' · ' + state.ui.today.project : ''}. Try another source, or paste a fresh list.`
-        : 'Paste a company list in Leads, or log someone you found at an event, while manning, searching or on social.'}</p>
+        : 'Paste a company list in Hunting grounds, or log someone you found at an event, while manning, searching or on social.'}</p>
       <div class="row wrap">
-        <a class="btn primary lg" href="#/leads">Find more in Leads →</a>
+        <button class="btn primary lg" type="button" data-action="lead-tab" data-value="grounds">Paste a list in Hunting grounds →</button>
         ${any && source ? html`<button class="btn lg" type="button" data-action="today-any">Any source</button>` : ''}
       </div>
     </article>`;
@@ -114,8 +83,7 @@ function weekBars() {
     </div>`;
 }
 
-export function renderToday() {
-  const { week, wins } = touchStats();
+export function renderResearch() {
   const foundToday = findsBetween(startOfDay(state.now));
   const q = queue();
   const t = q[0];
@@ -124,14 +92,8 @@ export function renderToday() {
   const pct = Math.min(100, Math.round((foundToday.length / goal) * 100));
   const month = findsBetween(state.now - 30 * DAY);
   const left = SOURCE_IDS.map((id) => ({ id, n: state.targets.filter((x) => x.source === id && x.status === 'to_research').length }));
-  const dateLabel = new Date(state.now).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 
   return html`
-    <header class="page-head">
-      <div><h1>Today</h1><p class="muted">${dateLabel} · ${plural(week, 'touch', 'touches')} this week · ${plural(wins, 'win')} this month</p></div>
-      <button class="btn primary" type="button" data-action="add-person">+ Add person</button>
-    </header>
-    ${dueStrip()}
     <div class="split">
       <div class="split-main stack">
         <div class="stack-sm">
@@ -161,7 +123,7 @@ export function renderToday() {
         <section class="card stack-sm">
           <h2 class="h3">Companies left to research</h2>
           ${left.map((s) => html`<div class="row between small"><span>${s.id}</span><strong class="${s.n ? '' : 'muted'}">${s.n}</strong></div>`)}
-          <a class="link small" href="#/leads">Manage sources in Leads →</a>
+          <button type="button" class="link small" data-action="lead-tab" data-value="grounds">Manage sources in Hunting grounds →</button>
         </section>
       </aside>
     </div>`;
